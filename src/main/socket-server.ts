@@ -11,6 +11,7 @@ import { RpcHandler, RpcRequest } from './rpc'
 export class SocketServer {
   private server: net.Server | null = null
   private port = 0
+  private healthTimer: NodeJS.Timeout | null = null
 
   constructor(private rpcHandler: RpcHandler) {}
 
@@ -30,6 +31,10 @@ export class SocketServer {
   }
 
   stop(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer)
+      this.healthTimer = null
+    }
     this.server?.close()
     this.server = null
     this.cleanAddrFile()
@@ -37,6 +42,18 @@ export class SocketServer {
 
   getPort(): number {
     return this.port
+  }
+
+  // recreate socket_addr if missing (called by repair button and health check)
+  ensureAddrFile(): void {
+    if (!this.port) return
+    const file = path.join(os.homedir(), '.mux', 'socket_addr')
+    if (!fs.existsSync(file)) this.writeAddrFile()
+  }
+
+  // periodic check that socket_addr exists, self-heals if deleted
+  startHealthCheck(): void {
+    this.healthTimer = setInterval(() => this.ensureAddrFile(), 30_000)
   }
 
   private handleConnection(conn: net.Socket): void {
@@ -78,8 +95,8 @@ export class SocketServer {
       const dir = path.join(os.homedir(), '.mux')
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(path.join(dir, 'socket_addr'), `127.0.0.1:${this.port}`, 'utf-8')
-    } catch {
-      // non-fatal
+    } catch (error) {
+      console.error('failed to write socket_addr:', error)
     }
   }
 

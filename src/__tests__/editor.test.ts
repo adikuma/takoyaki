@@ -9,7 +9,7 @@ const childState = vi.hoisted(() => ({
   spawnPlans: [] as Array<{ exitCode?: number | null; error?: string }>,
   shellOpenPathCalls: [] as string[],
   shellOpenPathResult: '',
-  home: path.join(process.cwd(), '.tmp-editor-home'),
+  home: process.cwd() + '/.tmp-editor-home',
 }))
 
 vi.mock('os', async () => {
@@ -88,7 +88,10 @@ describe('EditorService', () => {
   })
 
   it('launches zed with new-window args', async () => {
-    childState.whereResponses.set('zed', path.join(childState.home, 'Zed', 'bin', 'zed'))
+    const zedBin = path.join(childState.home, 'Zed', 'bin')
+    fs.mkdirSync(zedBin, { recursive: true })
+    fs.writeFileSync(path.join(zedBin, 'zed.exe'), '')
+    childState.whereResponses.set('zed', path.join(zedBin, 'zed'))
     childState.spawnPlans.push({ exitCode: 0 })
 
     const result = await service.openPath(samplePath, 'zed')

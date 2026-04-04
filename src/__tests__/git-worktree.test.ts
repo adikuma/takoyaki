@@ -4,11 +4,11 @@ import * as path from 'path'
 
 const gitState = vi.hoisted(() => ({
   responses: new Map<string, { stdout?: string; stderr?: string; error?: string }>(),
-  home: path.join(process.cwd(), '.tmp-worktree-home'),
+  home: process.cwd() + '/.tmp-worktree-home',
 }))
 
 function gitKey(cwd: string, args: string[]): string {
-  return JSON.stringify([cwd, args])
+  return JSON.stringify([cwd.replace(/\\/g, '/'), args])
 }
 
 function mockGit(cwd: string, args: string[], stdout: string, error?: string): void {
@@ -190,7 +190,7 @@ describe('GitWorktreeService', () => {
         taskTitle: 'Auth Refactor',
         branchName: 'task/auth-refactor',
         baseBranch: 'main',
-        worktreePath: managedPath,
+        worktreePath: managedPath.replace(/\\/g, '/'),
         isDirty: true,
       }),
     ])

@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 
 // mock node-pty
 vi.mock('node-pty', () => {
@@ -364,19 +367,28 @@ describe('WorkspaceManager', () => {
     })
 
     it('persists and restores task metadata', () => {
-      const project = wm.create('project-a', '/workspace/app', '/workspace/app')
-      wm.createTask(project.id, 'auth refactor', '/workspace/task-auth', 'task/auth-refactor', 'main')
+      // load() skips tasks where the working directory doesnt exist on disk
+      // use a real temp directory so the existence check passes
+      const taskDir = path.join(os.tmpdir(), 'mux-test-task-' + Date.now())
+      fs.mkdirSync(taskDir, { recursive: true })
 
-      wm.save()
+      try {
+        const project = wm.create('project-a', '/workspace/app', '/workspace/app')
+        wm.createTask(project.id, 'auth refactor', taskDir, 'task/auth-refactor', 'main')
 
-      const tm2 = new TerminalManager()
-      const wm2 = new WorkspaceManager(tm2)
-      wm2.load()
+        wm.save()
 
-      const restoredTask = wm2.list().find((workspace) => workspace.kind === 'task')
-      expect(restoredTask?.parentProjectId).toBe(project.id)
-      expect(restoredTask?.branchName).toBe('task/auth-refactor')
-      expect(restoredTask?.baseBranch).toBe('main')
+        const tm2 = new TerminalManager()
+        const wm2 = new WorkspaceManager(tm2)
+        wm2.load()
+
+        const restoredTask = wm2.list().find((workspace) => workspace.kind === 'task')
+        expect(restoredTask?.parentProjectId).toBe(project.id)
+        expect(restoredTask?.branchName).toBe('task/auth-refactor')
+        expect(restoredTask?.baseBranch).toBe('main')
+      } finally {
+        fs.rmSync(taskDir, { recursive: true, force: true })
+      }
     })
   })
 })

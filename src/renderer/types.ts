@@ -117,6 +117,16 @@ export interface EditorOpenResult {
   detail: string
 }
 
+export interface WindowsPtyInfo {
+  backend: 'conpty'
+  buildNumber: number
+}
+
+export interface TerminalRuntimeInfo {
+  platform: string
+  windowsPty: WindowsPtyInfo | null
+}
+
 export type ShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects'
 
 // just declaring that these methods exist on windows.mux as well
@@ -124,11 +134,16 @@ declare global {
   interface Window {
     muxOpenSettings?: () => void
     mux: {
+      clipboard: {
+        readText: () => Promise<string>
+        writeText: (text: string) => Promise<void>
+      }
       terminal: {
         create: (cwd?: string) => Promise<{ id: string; pid: number; cwd: string }>
         write: (id: string, data: string) => Promise<boolean>
         resize: (id: string, cols: number, rows: number) => Promise<void>
         destroy: (id: string) => Promise<boolean>
+        getRuntimeInfo: () => Promise<TerminalRuntimeInfo>
         onData: (cb: (id: string, data: string) => void) => () => void
         onExit: (cb: (id: string, code: number) => void) => () => void
       }

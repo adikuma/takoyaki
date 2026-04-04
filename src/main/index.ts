@@ -1,8 +1,7 @@
 // electron main process entry
 
-import { app, BrowserWindow, ipcMain, nativeTheme, dialog } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, dialog } from 'electron'
 import * as fs from 'fs'
-import * as os from 'os'
 import * as path from 'path'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
@@ -12,6 +11,7 @@ import { RpcHandler } from './rpc'
 import { SocketServer } from './socket-server'
 import { GitWorktreeService } from './git-worktree'
 import { EditorService, type EditorKind, type EditorLaunchTarget } from './editor'
+import { getTerminalRuntimeInfo } from './terminal-runtime'
 import {
   shouldShowHooksBanner,
   installHooks,
@@ -28,6 +28,7 @@ const rpc = new RpcHandler(workspaces, terminals)
 const socketServer = new SocketServer(rpc)
 const worktreeService = new GitWorktreeService()
 const editorService = new EditorService()
+const terminalRuntimeInfo = getTerminalRuntimeInfo()
 
 type HookStatusState = 'running' | 'finished' | 'failed'
 interface SurfaceStatusRecord {
@@ -44,46 +45,6 @@ let lastHookTest: { ok: boolean; detail: string; testedAt: number } | null = nul
 let lastVisitedWorkspaceId: string | null = null
 const workspaceLastActivity = new Map<string, number>()
 
-// activity heatmap persistence
-const ACTIVITY_FILE = path.join(os.homedir(), '.mux', 'activity.json')
-let yearActivity: Record<string, number> = {}
-let activityDirty = false
-let activityFlushTimer: NodeJS.Timeout | null = null
-
-function loadYearActivity(): void {
-  try {
-    if (fs.existsSync(ACTIVITY_FILE)) {
-      yearActivity = JSON.parse(fs.readFileSync(ACTIVITY_FILE, 'utf-8'))
-    }
-  } catch {
-    yearActivity = {}
-  }
-}
-
-function saveYearActivity(): void {
-  if (!activityDirty) return
-  try {
-    const dir = path.dirname(ACTIVITY_FILE)
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(ACTIVITY_FILE, JSON.stringify(yearActivity), 'utf-8')
-    activityDirty = false
-  } catch {
-    // activity save failed, non-fatal
-  }
-}
-
-function incrementDayActivity(): void {
-  const today = new Date().toISOString().slice(0, 10)
-  yearActivity[today] = (yearActivity[today] || 0) + 1
-  activityDirty = true
-  if (!activityFlushTimer) {
-    activityFlushTimer = setTimeout(() => {
-      activityFlushTimer = null
-      saveYearActivity()
-    }, 60_000)
-  }
-}
-
 function sendActivity(): void {
   send('activity:changed', Object.fromEntries(workspaceLastActivity))
 }
@@ -92,7 +53,6 @@ function noteWorkspaceActivity(workspaceId: string | null): void {
   if (!workspaceId) return
   const projectId = workspaces.projectIdForWorkspace(workspaceId) || workspaceId
   workspaceLastActivity.set(projectId, Date.now())
-  incrementDayActivity()
   sendActivity()
 }
 
@@ -326,6 +286,10 @@ function createWindow(): void {
 }
 
 function setupIpc(): void {
+  // clipboard
+  ipcMain.handle('clipboard:read-text', () => clipboard.readText())
+  ipcMain.handle('clipboard:write-text', (_, text: string) => clipboard.writeText(text))
+
   // terminal
   ipcMain.handle('terminal:create', (_, cwd?: string) => terminals.create(cwd))
   ipcMain.handle('terminal:write', (_, id: string, data: string) => {
@@ -336,6 +300,7 @@ function setupIpc(): void {
   })
   ipcMain.handle('terminal:resize', (_, id: string, cols: number, rows: number) => terminals.resize(id, cols, rows))
   ipcMain.handle('terminal:destroy', (_, id: string) => terminals.destroy(id))
+  ipcMain.handle('terminal:get-runtime-info', () => terminalRuntimeInfo)
 
   // workspace
   ipcMain.handle('workspace:create', (_, title?: string, cwd?: string) => {
@@ -448,7 +413,10 @@ function setupIpc(): void {
 
   // claude code hooks
   ipcMain.handle('hooks:should-show', () => shouldShowHooksBanner())
-  ipcMain.handle('hooks:install', () => installHooks())
+  ipcMain.handle('hooks:install', () => {
+    socketServer.ensureAddrFile()
+    return installHooks()
+  })
   ipcMain.handle('hooks:dismiss', () => dismissHooksBanner())
   ipcMain.handle('hooks:diagnostics', () => {
     const diagnostics = getHookDiagnostics()
@@ -522,6 +490,13 @@ function setupIpc(): void {
   // forward terminal events to renderer
   terminals.on('data', (id: string, data: string) => send('terminal:data', id, data))
   terminals.on('exit', (id: string, code: number) => send('terminal:exit', id, code))
+  // prune activity entries for workspaces that no longer exist
+  workspaces.on('change', () => {
+    const projectIds = new Set(workspaces.listProjects().map((p) => p.id))
+    for (const id of workspaceLastActivity.keys()) {
+      if (!projectIds.has(id)) workspaceLastActivity.delete(id)
+    }
+  })
   // send full snapshot on every change so renderer never needs to re-fetch
   workspaces.on('change', () => {
     const ws = workspaces.current()
@@ -540,7 +515,6 @@ function setupIpc(): void {
 
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark'
-  loadYearActivity()
   initializeHooks()
   setupIpc()
   // restore saved layout before creating window
@@ -548,11 +522,11 @@ app.whenReady().then(async () => {
   await Promise.all(workspaces.listProjects().map((project) => recoverProjectTasks(project.id)))
   lastVisitedWorkspaceId = workspaces.activeWorkspaceId
   await socketServer.start()
+  socketServer.startHealthCheck()
   createWindow()
 })
 
 app.on('window-all-closed', () => {
-  saveYearActivity()
   terminals.destroyAll()
   socketServer.stop()
   app.quit()

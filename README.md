@@ -41,4 +41,4 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for a detailed breakdown of the codebase,
 
 ## License
 
-[AGPL-3.0-only](LICENSE)
+[AGPL-3.0-or-later](LICENSE)

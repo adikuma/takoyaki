@@ -42,6 +42,16 @@ interface PreloadAgentToastEvent {
   tool: string
 }
 
+interface PreloadWindowsPtyInfo {
+  backend: 'conpty'
+  buildNumber: number
+}
+
+interface PreloadTerminalRuntimeInfo {
+  platform: string
+  windowsPty: PreloadWindowsPtyInfo | null
+}
+
 type PreloadEditorKind = 'cursor' | 'vscode' | 'zed' | 'explorer'
 type PreloadEditorLaunchTarget = 'preferred' | PreloadEditorKind
 type PreloadShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects'
@@ -49,12 +59,18 @@ type PreloadShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects'
 // each invoke sends a message to main and awaits the response
 // each on listener subscribes to events from main and returns a cleanup function
 const api = {
+  // system clipboard via main process (renderer is sandboxed)
+  clipboard: {
+    readText: () => ipcRenderer.invoke('clipboard:read-text'),
+    writeText: (text: string) => ipcRenderer.invoke('clipboard:write-text', text),
+  },
   // shell management (create, write keystrokes, resize, destroy)
   terminal: {
     create: (cwd?: string) => ipcRenderer.invoke('terminal:create', cwd),
     write: (id: string, data: string) => ipcRenderer.invoke('terminal:write', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
     destroy: (id: string) => ipcRenderer.invoke('terminal:destroy', id),
+    getRuntimeInfo: () => ipcRenderer.invoke('terminal:get-runtime-info') as Promise<PreloadTerminalRuntimeInfo>,
     onData: (cb: (id: string, data: string) => void) => {
       const handler = (_: unknown, id: string, data: string) => cb(id, data)
       ipcRenderer.on('terminal:data', handler)
