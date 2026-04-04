@@ -1,0 +1,210 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'DM Sans';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('./assets/fonts/dm-sans-400.woff2') format('woff2');
+}
+
+@layer base {
+  :root {
+    --mux-bg: #0a0a0b;
+    --mux-bg-hover: rgba(255, 255, 255, 0.04);
+    --mux-bg-active: rgba(255, 255, 255, 0.06);
+    --mux-bg-input: rgba(255, 255, 255, 0.03);
+    --mux-bg-subtle: rgba(255, 255, 255, 0.02);
+    --mux-bg-card: rgba(255, 255, 255, 0.015);
+
+    --mux-separator: rgba(255, 255, 255, 0.15);
+    --mux-border-subtle: rgba(255, 255, 255, 0.1);
+
+    --mux-text-primary: #f5f5f4;
+    --mux-text-secondary: #a8a29e;
+    --mux-text-muted: #78716c;
+    --mux-text-ghost: #57534e;
+
+    --mux-accent: #f59e0b;
+    --mux-accent-soft: #f59e0b;
+    --mux-success: #22c55e;
+    --mux-error: #ef4444;
+
+    --mux-diff-add-bg: rgba(34, 197, 94, 0.1);
+    --mux-diff-del-bg: rgba(239, 68, 68, 0.08);
+    --mux-diff-add-text: #4ade80;
+    --mux-diff-del-text: #f87171;
+    --mux-diff-hunk-text: #fbbf24;
+
+    --mux-btn-bg: #0a0a0b;
+    --mux-btn-ring: rgba(255, 255, 255, 0.08);
+    --mux-btn-ring-hover: rgba(255, 255, 255, 0.12);
+    --mux-btn-highlight: rgba(255, 255, 255, 0.04);
+
+    --mux-tooltip-bg: #1c1917;
+    --mux-tooltip-text: #f5f5f4;
+    --mux-terminal-bg: #0a0a0b;
+    --mux-toast-bg: #0a0a0b;
+    --mux-backdrop: rgba(0, 0, 0, 0.5);
+  }
+
+  [data-theme='light'] {
+    --mux-bg: #f7f6f4;
+    --mux-bg-hover: rgba(0, 0, 0, 0.04);
+    --mux-bg-active: rgba(0, 0, 0, 0.07);
+    --mux-bg-input: rgba(0, 0, 0, 0.04);
+    --mux-bg-subtle: rgba(0, 0, 0, 0.03);
+    --mux-bg-card: rgba(0, 0, 0, 0.03);
+
+    --mux-separator: rgba(0, 0, 0, 0.15);
+    --mux-border-subtle: rgba(0, 0, 0, 0.1);
+
+    --mux-text-primary: #1c1917;
+    --mux-text-secondary: #44403c;
+    --mux-text-muted: #78716c;
+    --mux-text-ghost: #a8a29e;
+
+    --mux-accent: #b45309;
+    --mux-accent-soft: #f59e0b;
+    --mux-success: #15803d;
+    --mux-error: #b91c1c;
+
+    --mux-diff-add-bg: rgba(22, 163, 74, 0.1);
+    --mux-diff-del-bg: rgba(185, 28, 28, 0.08);
+    --mux-diff-add-text: #15803d;
+    --mux-diff-del-text: #b91c1c;
+    --mux-diff-hunk-text: #a16207;
+
+    --mux-btn-bg: #f5f5f4;
+    --mux-btn-ring: rgba(0, 0, 0, 0.12);
+    --mux-btn-ring-hover: rgba(0, 0, 0, 0.2);
+    --mux-btn-highlight: rgba(0, 0, 0, 0.04);
+
+    --mux-tooltip-bg: #ffffff;
+    --mux-tooltip-text: #1c1917;
+    --mux-terminal-bg: #ffffff;
+    --mux-toast-bg: #ffffff;
+    --mux-backdrop: rgba(0, 0, 0, 0.2);
+  }
+
+  body {
+    background-color: var(--mux-bg);
+    color: var(--mux-text-primary);
+    font-family: 'DM Sans', system-ui, sans-serif;
+    font-size: 110%;
+    -webkit-font-smoothing: antialiased;
+    scrollbar-width: none;
+  }
+
+  * {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+}
+
+.xterm-viewport {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.mux-pane-alt .xterm-cursor {
+  opacity: 0 !important;
+}
+
+.mux-input::placeholder {
+  color: var(--mux-text-ghost);
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* split pane resize handle */
+.split-handle {
+  background: var(--mux-separator);
+  transition: background-color 120ms ease;
+}
+.split-handle:hover,
+.split-handle[data-resize-handle-active] {
+  background: var(--mux-accent);
+}
+.split-handle[data-direction='horizontal'] {
+  width: 3px;
+}
+.split-handle[data-direction='vertical'] {
+  height: 3px;
+}
+
+.mux-btn {
+  transition:
+    background 120ms ease,
+    box-shadow 120ms ease,
+    color 200ms ease;
+}
+
+@keyframes mux-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.mux-spin {
+  animation: mux-spin 0.8s linear infinite;
+}
+
+@keyframes mux-status-pulse {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.mux-status-pulse {
+  animation: mux-status-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes mux-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.mux-toast-in {
+  animation: mux-toast-in 0.2s ease-out;
+}
+
+@keyframes mux-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.mux-tooltip {
+  animation: mux-tooltip-in 0.12s ease-out;
+}
