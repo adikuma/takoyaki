@@ -8,6 +8,7 @@ export interface Workspace {
   focusedSurfaceId: string | null
   workingDirectory?: string
   projectRoot?: string
+  gitEnabled?: boolean
   branchName?: string | null
   baseBranch?: string | null
   paneCount?: number
@@ -219,6 +220,10 @@ declare global {
       activity: {
         get: () => Promise<Record<string, number>>
         onChange: (cb: (data: Record<string, number>) => void) => () => void
+      }
+      preferences: {
+        getPinnedProjectRoots: () => Promise<string[]>
+        setPinnedProjectRoots: (projectRoots: string[]) => Promise<string[]>
       }
       status: {
         onChange: (cb: (statuses: Record<string, HookSurfaceStatus>) => void) => () => void

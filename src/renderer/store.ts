@@ -9,6 +9,7 @@ import type {
   ReviewView,
   Workspace,
 } from './types'
+import { normalizePinnedProjectRoot } from './pinned-projects'
 
 // guard for when running outside electron (e.g. vite dev server in browser)
 const api = typeof window !== 'undefined' && window.takoyaki ? window.takoyaki : null
@@ -40,6 +41,9 @@ interface MuxStore {
   setSurfaceStatuses: (statuses: Record<string, HookSurfaceStatus>) => void
   workspaceActivity: Record<string, number>
   setWorkspaceActivity: (data: Record<string, number>) => void
+  pinnedProjectRoots: string[]
+  loadPinnedProjects: () => Promise<void>
+  togglePinnedProject: (projectRoot: string) => Promise<void>
   editorPreference: EditorKind
   editorAvailability: EditorAvailability[]
   loadEditorState: () => Promise<void>
@@ -109,6 +113,32 @@ export const useStore = create<MuxStore>((set, get) => ({
 
   workspaceActivity: {},
   setWorkspaceActivity: (data: Record<string, number>) => set({ workspaceActivity: data }),
+
+  pinnedProjectRoots: [],
+  loadPinnedProjects: async () => {
+    if (!api?.preferences) return
+    const pinnedProjectRoots = await api.preferences.getPinnedProjectRoots()
+    set({ pinnedProjectRoots })
+  },
+  togglePinnedProject: async (projectRoot) => {
+    if (!api?.preferences) return
+
+    // match the local optimistic update with the shape saved by main
+    const normalizedProjectRoot = normalizePinnedProjectRoot(projectRoot)
+    const current = get().pinnedProjectRoots
+    const next = current.includes(normalizedProjectRoot)
+      ? current.filter((root) => root !== normalizedProjectRoot)
+      : [...current, normalizedProjectRoot]
+
+    set({ pinnedProjectRoots: next })
+
+    try {
+      const pinnedProjectRoots = await api.preferences.setPinnedProjectRoots(next)
+      set({ pinnedProjectRoots })
+    } catch {
+      set({ pinnedProjectRoots: current })
+    }
+  },
 
   editorPreference: 'cursor',
   editorAvailability: [],

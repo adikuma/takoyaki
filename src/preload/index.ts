@@ -12,6 +12,7 @@ interface PreloadWorkspace {
   focusedSurfaceId: string | null
   workingDirectory?: string
   projectRoot?: string
+  gitEnabled?: boolean
   branchName?: string | null
   baseBranch?: string | null
   paneCount?: number
@@ -184,6 +185,11 @@ const api = {
         ipcRenderer.removeListener('activity:changed', handler)
       }
     },
+  },
+  preferences: {
+    getPinnedProjectRoots: () => ipcRenderer.invoke('preferences:get-pinned-project-roots') as Promise<string[]>,
+    setPinnedProjectRoots: (projectRoots: string[]) =>
+      ipcRenderer.invoke('preferences:set-pinned-project-roots', projectRoots) as Promise<string[]>,
   },
   session: {
     onSaved: (cb: () => void) => {

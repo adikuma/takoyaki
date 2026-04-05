@@ -11,6 +11,7 @@ import { RpcHandler } from './rpc'
 import { SocketServer } from './socket-server'
 import { GitWorktreeService } from './git-worktree'
 import { EditorService, type EditorKind, type EditorLaunchTarget } from './editor'
+import { PreferencesService } from './preferences'
 import { getTerminalRuntimeInfo } from './terminal-runtime'
 import { ReviewService } from './review'
 import {
@@ -28,7 +29,8 @@ const workspaces = new WorkspaceManager(terminals)
 const rpc = new RpcHandler(workspaces, terminals)
 const socketServer = new SocketServer(rpc)
 const worktreeService = new GitWorktreeService()
-const editorService = new EditorService()
+const preferencesService = new PreferencesService()
+const editorService = new EditorService(preferencesService)
 const terminalRuntimeInfo = getTerminalRuntimeInfo()
 const reviewService = new ReviewService()
 
@@ -162,7 +164,8 @@ function send(channel: string, ...args: unknown[]): void {
 
 async function recoverProjectTasks(projectId: string): Promise<void> {
   const project = workspaces.get(projectId)
-  if (!project || project.kind !== 'project') return
+  // skip git recovery for plain folders
+  if (!project || project.kind !== 'project' || !project.gitEnabled) return
   const recovered = await worktreeService.listManagedWorktrees(project.projectRoot || project.workingDirectory || '')
   if (!recovered.length) return
   workspaces.syncRecoveredTasks(
@@ -180,7 +183,7 @@ function noteSelection(workspaceId: string | null): void {
   if (!workspaceId) return
   noteWorkspaceActivity(workspaceId)
   const workspace = workspaces.get(workspaceId)
-  if (workspace?.kind === 'project') {
+  if (workspace?.kind === 'project' && workspace.gitEnabled) {
     void recoverProjectTasks(workspaceId)
   }
 }
@@ -194,10 +197,11 @@ async function openProjectFolder(): Promise<ReturnType<typeof workspaces.create>
   if (result.canceled || !result.filePaths[0]) return null
 
   const folderPath = result.filePaths[0]
-  const projectRoot = await worktreeService.resolveProjectRoot(folderPath)
-  const title = path.basename(projectRoot || folderPath)
-  const workspace = workspaces.create(title, folderPath, projectRoot)
-  await recoverProjectTasks(workspace.id)
+  const repoRoot = await worktreeService.detectRepoRoot(folderPath)
+  const projectRoot = repoRoot || folderPath
+  const title = path.basename(projectRoot)
+  const workspace = workspaces.create(title, folderPath, projectRoot, Boolean(repoRoot))
+  if (workspace.gitEnabled) await recoverProjectTasks(workspace.id)
   noteWorkspaceActivity(workspace.id)
   return workspace
 }
@@ -305,8 +309,9 @@ function setupIpc(): void {
   ipcMain.handle('terminal:get-runtime-info', () => terminalRuntimeInfo)
 
   // workspace
-  ipcMain.handle('workspace:create', (_, title?: string, cwd?: string) => {
-    const workspace = workspaces.create(title, cwd)
+  ipcMain.handle('workspace:create', async (_, title?: string, cwd?: string) => {
+    const repoRoot = cwd ? await worktreeService.detectRepoRoot(cwd) : null
+    const workspace = workspaces.create(title, cwd, repoRoot || cwd, Boolean(repoRoot))
     noteWorkspaceActivity(workspace.id)
     return workspace
   })
@@ -314,7 +319,7 @@ function setupIpc(): void {
   ipcMain.handle('workspace:list', () => workspaces.list())
   ipcMain.handle('workspace:list-branches', async (_, projectId: string) => {
     const workspace = workspaces.get(projectId)
-    if (!workspace || workspace.kind !== 'project') return []
+    if (!workspace || workspace.kind !== 'project' || !workspace.gitEnabled) return []
     return worktreeService.listBranches(workspace.projectRoot)
   })
   ipcMain.handle(
@@ -323,6 +328,9 @@ function setupIpc(): void {
       const project = workspaces.get(projectId)
       if (!project || project.kind !== 'project') {
         return { ok: false, detail: 'Project not found', workspace: null }
+      }
+      if (!project.gitEnabled) {
+        return { ok: false, detail: 'Git is required to create tasks.', workspace: null }
       }
       try {
         const created = await worktreeService.createTask({
@@ -447,6 +455,12 @@ function setupIpc(): void {
 
   // workspace activity
   ipcMain.handle('activity:get', () => Object.fromEntries(workspaceLastActivity))
+
+  // pinning is a user preference and not part of workspace layout state
+  ipcMain.handle('preferences:get-pinned-project-roots', () => preferencesService.getPinnedProjectRoots())
+  ipcMain.handle('preferences:set-pinned-project-roots', (_, projectRoots: string[]) =>
+    preferencesService.setPinnedProjectRoots(projectRoots),
+  )
 
   ipcMain.handle('editor:get-preference', () => editorService.getPreference())
   ipcMain.handle('editor:set-preference', (_, editor: EditorKind) => editorService.setPreference(editor))

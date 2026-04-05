@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   ArrowUpRight,
   Check,
@@ -6,6 +6,7 @@ import {
   Diff,
   FolderClosed,
   Moon,
+  Pin,
   Plus,
   Search,
   Settings2,
@@ -18,6 +19,7 @@ import { useStore } from './store'
 import { button, colors, fonts, sizes } from './design'
 import { Tooltip } from './Tooltip'
 import { GitBranchIcon } from './icons'
+import { isPinnedProject, sortProjectsByPinned } from './pinned-projects'
 import type { EditorKind, HookStatusState, HookSurfaceStatus, Workspace } from './types'
 
 // folder icon that lights up amber when the project is selected
@@ -33,7 +35,7 @@ function FolderIcon({ active }: { active?: boolean }) {
 }
 
 function SearchIcon() {
-  return <Search size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
+  return <Search size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
 }
 
 function Checkmark() {
@@ -46,6 +48,78 @@ function LightningIcon() {
 
 function FailureIcon() {
   return <X size={sizes.iconSm} strokeWidth={2} color={colors.error} style={{ flexShrink: 0 }} />
+}
+
+function RowActionCluster({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="flex items-center gap-0 shrink-0"
+      style={{
+        padding: 2,
+        borderRadius: sizes.radiusLg,
+        ...button.base,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function RowActionButton({
+  label,
+  active = false,
+  danger = false,
+  disabled = false,
+  onClick,
+  children,
+}: {
+  label: string
+  active?: boolean
+  danger?: boolean
+  disabled?: boolean
+  onClick: (event: ReactMouseEvent<HTMLButtonElement>) => void
+  children: ReactNode
+}) {
+  const restingColor = disabled
+    ? colors.textGhost
+    : active
+      ? colors.accentSoft
+      : danger
+        ? colors.textGhost
+        : colors.textMuted
+  const hoverColor = danger ? colors.error : colors.textPrimary
+
+  return (
+    <Tooltip content={label} side="top">
+      <button
+        disabled={disabled}
+        onClick={onClick}
+        className="transition-colors duration-[120ms] shrink-0"
+        style={{
+          width: 24,
+          height: 24,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: sizes.radiusMd,
+          color: restingColor,
+          opacity: disabled ? 0.55 : 1,
+        }}
+        onMouseEnter={(event) => {
+          if (disabled) return
+          event.currentTarget.style.color = hoverColor
+          event.currentTarget.style.background = colors.bgHover
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.color = restingColor
+          event.currentTarget.style.background = 'transparent'
+        }}
+        aria-label={label.toLowerCase()}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  )
 }
 
 // shows a lightning bolt when running andcheckmark when done and  x when failed
@@ -78,6 +152,16 @@ function getWorkspaceStatus(
 export function getActiveProjectId(activeWorkspace: Pick<Workspace, 'id' | 'parentProjectId'> | null): string | null {
   if (!activeWorkspace) return null
   return activeWorkspace.parentProjectId || activeWorkspace.id
+}
+
+export function canUseProjectGitActions(workspace: Pick<Workspace, 'kind' | 'gitEnabled'>): boolean {
+  return workspace.kind === 'project' && Boolean(workspace.gitEnabled)
+}
+
+// say no git for plain folders and detached when git exists without a branch name
+export function getProjectBranchLabel(workspace: Pick<Workspace, 'gitEnabled' | 'branchName'>): string {
+  if (!workspace.gitEnabled) return 'no git'
+  return workspace.branchName ? `@${workspace.branchName}` : 'detached'
 }
 
 const editorMenuItems: { target: EditorKind; label: string }[] = [
@@ -221,6 +305,8 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
   const closeWorkspace = useStore((s) => s.closeWorkspace)
   const openProjectFolder = useStore((s) => s.openProjectFolder)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const pinnedProjectRoots = useStore((s) => s.pinnedProjectRoots)
+  const togglePinnedProject = useStore((s) => s.togglePinnedProject)
   const theme = useStore((s) => s.theme)
   const toggleTheme = useStore((s) => s.toggleTheme)
   const showToast = useStore((s) => s.showToast)
@@ -260,7 +346,13 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
     return grouped
   }, [workspaces])
 
-  const filtered = search ? projects.filter((ws) => ws.title.toLowerCase().includes(search.toLowerCase())) : projects
+  const filtered = useMemo(() => {
+    // search first and then lift pinned projects without creating a separate sidebar section
+    const visibleProjects = search
+      ? projects.filter((ws) => ws.title.toLowerCase().includes(search.toLowerCase()))
+      : projects
+    return sortProjectsByPinned(visibleProjects, pinnedProjectRoots)
+  }, [pinnedProjectRoots, projects, search])
   const availableEditors = useMemo(
     () =>
       editorMenuItems
@@ -440,105 +532,87 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
         {filtered.map((ws) => {
           const tasks = tasksByProjectId.get(ws.id) || []
           const projectSelected = ws.id === activeId
+          const projectRoot = ws.projectRoot || null
+          const gitEnabled = canUseProjectGitActions(ws)
+          const projectPinned = isPinnedProject(ws.projectRoot, pinnedProjectRoots)
           const status = getWorkspaceStatus(surfaceStatuses, ws.surfaceIds || [])
           const taskLabel = tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'}` : null
-          const branchLabel = `@${ws.branchName || 'main'}`
+          const branchLabel = getProjectBranchLabel(ws)
           return (
             <div key={ws.id}>
               <div
                 onClick={() => handleSelectWorkspace(ws.id)}
                 className="group cursor-pointer"
-                style={{ padding: '8px 12px' }}
+                style={{ padding: '10px 14px' }}
               >
                 <div className="flex items-start gap-3">
                   <div className="mt-0.5 flex-shrink-0">
                     <FolderIcon active={projectSelected} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <span
                         className="truncate flex-1 text-[13px] font-semibold"
                         style={{ color: projectSelected ? colors.textPrimary : colors.textSecondary }}
                       >
                         {ws.title}
                       </span>
-                      <Tooltip content="New task" side="top">
-                        <button
+                      <RowActionCluster>
+                        <RowActionButton
+                          label={gitEnabled ? 'New task' : 'Git required'}
+                          disabled={!gitEnabled}
                           onClick={(e) => {
                             e.stopPropagation()
+                            if (!gitEnabled) return
                             openTaskModal(ws.id)
                           }}
-                          className="transition-colors duration-[120ms] shrink-0 p-1"
-                          style={{ color: colors.textMuted }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = colors.textPrimary
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = colors.textMuted
-                          }}
-                          aria-label="new task"
                         >
-                          <GitBranchIcon size={13} />
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Open in review" side="top">
-                        <button
+                          <GitBranchIcon size={12} />
+                        </RowActionButton>
+                        {projectRoot && (
+                          <RowActionButton
+                            label={projectPinned ? 'Unpin project' : 'Pin project'}
+                            active={projectPinned}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void togglePinnedProject(projectRoot)
+                            }}
+                          >
+                            <Pin size={12} strokeWidth={1.8} />
+                          </RowActionButton>
+                        )}
+                        <RowActionButton
+                          label={gitEnabled ? 'Open in review' : 'Git required'}
+                          disabled={!gitEnabled}
                           onClick={(e) => {
                             e.stopPropagation()
+                            if (!gitEnabled) return
                             void openReview(ws.id)
                             if (narrow) onRequestClose?.()
                           }}
-                          className="transition-colors duration-[120ms] shrink-0 p-1"
-                          style={{ color: colors.textMuted }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = colors.textPrimary
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = colors.textMuted
-                          }}
-                          aria-label="open in review"
                         >
-                          <Diff size={13} strokeWidth={1.8} />
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Open in editor" side="top">
-                        <button
+                          <Diff size={12} strokeWidth={1.8} />
+                        </RowActionButton>
+                        <RowActionButton
+                          label="Open in editor"
                           onClick={(e) => {
                             e.stopPropagation()
                             void openInEditor(ws.id)
                           }}
-                          className="transition-colors duration-[120ms] shrink-0 p-1"
-                          style={{ color: colors.textMuted }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = colors.textPrimary
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = colors.textMuted
-                          }}
-                          aria-label="open in editor"
                         >
-                          <ArrowUpRight size={13} strokeWidth={1.8} />
-                        </button>
-                      </Tooltip>
-                      <Tooltip content="Close project" side="top">
-                        <button
+                          <ArrowUpRight size={12} strokeWidth={1.8} />
+                        </RowActionButton>
+                        <RowActionButton
+                          label="Close project"
+                          danger
                           onClick={(e) => {
                             e.stopPropagation()
                             setConfirmClose({ id: ws.id, title: ws.title })
                           }}
-                          className="transition-colors duration-[120ms] shrink-0 p-1"
-                          style={{ color: colors.textMuted }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.color = colors.error
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.color = colors.textMuted
-                          }}
-                          aria-label="close project"
                         >
-                          <Trash2 size={13} strokeWidth={1.8} />
-                        </button>
-                      </Tooltip>
+                          <Trash2 size={12} strokeWidth={1.8} />
+                        </RowActionButton>
+                      </RowActionCluster>
                     </div>
                     <div style={{ marginTop: 2, fontSize: 10, color: colors.textGhost, fontFamily: fonts.mono }}>
                       <div className="flex items-center gap-1">
@@ -602,12 +676,12 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                         />
                       )}
                     </div>
-                    <div className="flex items-start gap-2.5" style={{ flex: 1, minWidth: 0, padding: '6px 8px' }}>
+                    <div className="flex items-start gap-2.5" style={{ flex: 1, minWidth: 0, padding: '8px 10px' }}>
                       <div className="mt-0.5 flex-shrink-0">
                         <GitBranchIcon size={13} color={taskSelected ? colors.accentSoft : colors.textMuted} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <span
                             className="truncate flex-1"
                             style={{
@@ -619,64 +693,37 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                             {task.title}
                           </span>
                           {taskStatus && <StatusGlyph status={taskStatus} />}
-                          <Tooltip content="Open in review" side="top">
-                            <button
+                          <RowActionCluster>
+                            <RowActionButton
+                              label="Open in review"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 void openReview(task.id)
                                 if (narrow) onRequestClose?.()
                               }}
-                              className="transition-colors duration-[120ms] shrink-0 p-1"
-                              style={{ color: colors.textMuted }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.color = colors.textPrimary
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.color = colors.textMuted
-                              }}
-                              aria-label="open in review"
                             >
-                              <Diff size={13} strokeWidth={1.8} />
-                            </button>
-                          </Tooltip>
-                          <Tooltip content="Open in editor" side="top">
-                            <button
+                              <Diff size={12} strokeWidth={1.8} />
+                            </RowActionButton>
+                            <RowActionButton
+                              label="Open in editor"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 void openInEditor(task.id)
                               }}
-                              className="transition-colors duration-[120ms] shrink-0 p-1"
-                              style={{ color: colors.textMuted }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.color = colors.textPrimary
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.color = colors.textMuted
-                              }}
-                              aria-label="open in editor"
                             >
-                              <ArrowUpRight size={13} strokeWidth={1.8} />
-                            </button>
-                          </Tooltip>
-                          <Tooltip content="Remove task" side="top">
-                            <button
+                              <ArrowUpRight size={12} strokeWidth={1.8} />
+                            </RowActionButton>
+                            <RowActionButton
+                              label="Remove task"
+                              danger
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setConfirmRemoveTask({ id: task.id, title: task.title, force: false })
                               }}
-                              className="transition-colors duration-[120ms] shrink-0"
-                              style={{ color: colors.textGhost }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.color = colors.error
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.color = colors.textGhost
-                              }}
-                              aria-label="remove task"
                             >
-                              <Trash2 size={13} strokeWidth={1.8} />
-                            </button>
-                          </Tooltip>
+                              <Trash2 size={12} strokeWidth={1.8} />
+                            </RowActionButton>
+                          </RowActionCluster>
                         </div>
                         <div
                           style={{

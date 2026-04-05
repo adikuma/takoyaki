@@ -67,9 +67,10 @@ describe('WorkspaceManager', () => {
     })
 
     it('stores a canonical project root separately from the terminal cwd', () => {
-      const ws = wm.create('test', '/workspace/app/backend', '/workspace/app')
+      const ws = wm.create('test', '/workspace/app/backend', '/workspace/app', true)
       expect(ws.workingDirectory).toBe('/workspace/app/backend')
       expect(ws.projectRoot).toBe('/workspace/app')
+      expect(ws.gitEnabled).toBe(true)
     })
 
     it('creates projects as top-level workspaces', () => {
@@ -77,15 +78,21 @@ describe('WorkspaceManager', () => {
       expect(ws.kind).toBe('project')
       expect(ws.parentProjectId).toBeNull()
     })
+
+    it('defaults plain projects to non git until main marks them otherwise', () => {
+      const ws = wm.create('plain-folder')
+      expect(ws.gitEnabled).toBe(false)
+    })
   })
 
   describe('createTask', () => {
     it('creates a task under the parent project and activates it', () => {
-      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback')
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
       const task = wm.createTask(project.id, 'auth refactor', '/tmp/task-auth', 'task/auth-refactor', 'main')
 
       expect(task?.kind).toBe('task')
       expect(task?.parentProjectId).toBe(project.id)
+      expect(task?.gitEnabled).toBe(true)
       expect(task?.branchName).toBe('task/auth-refactor')
       expect(task?.baseBranch).toBe('main')
       expect(wm.activeWorkspaceId).toBe(task?.id)
@@ -98,7 +105,7 @@ describe('WorkspaceManager', () => {
 
   describe('syncRecoveredTasks', () => {
     it('creates recovered task workspaces without changing the active project', () => {
-      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback')
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
 
       const recovered = wm.syncRecoveredTasks(project.id, [
         {
@@ -116,7 +123,7 @@ describe('WorkspaceManager', () => {
     })
 
     it('deduplicates repeated recovery for the same worktree', () => {
-      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback')
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
 
       const first = wm.syncRecoveredTasks(project.id, [
         {
@@ -140,7 +147,7 @@ describe('WorkspaceManager', () => {
     })
 
     it('updates recovered task metadata when a matching task already exists', () => {
-      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback')
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
       const task = wm.createTask(project.id, 'Old Title', '/tmp/task-auth', 'task/auth-refactor', 'main')
 
       const recovered = wm.syncRecoveredTasks(project.id, [
@@ -351,7 +358,7 @@ describe('WorkspaceManager', () => {
 
   describe('persistence', () => {
     it('save and load round-trips workspace layout', () => {
-      wm.create('project-a', '/workspace/app/backend', '/workspace/app')
+      wm.create('project-a', '/workspace/app/backend', '/workspace/app', true)
       wm.splitFocused('horizontal')
       wm.create('project-b')
 
@@ -367,6 +374,8 @@ describe('WorkspaceManager', () => {
       expect(wm2.list().map((w) => w.title)).toContain('project-a')
       expect(wm2.list().map((w) => w.title)).toContain('project-b')
       expect(wm2.list().find((w) => w.title === 'project-a')?.projectRoot).toBe('/workspace/app')
+      expect(wm2.list().find((w) => w.title === 'project-a')?.gitEnabled).toBe(true)
+      expect(wm2.list().find((w) => w.title === 'project-b')?.gitEnabled).toBe(false)
     })
 
     it('persists and restores task metadata', () => {
@@ -376,7 +385,7 @@ describe('WorkspaceManager', () => {
       fs.mkdirSync(taskDir, { recursive: true })
 
       try {
-        const project = wm.create('project-a', '/workspace/app', '/workspace/app')
+        const project = wm.create('project-a', '/workspace/app', '/workspace/app', true)
         wm.createTask(project.id, 'auth refactor', taskDir, 'task/auth-refactor', 'main')
 
         wm.save()

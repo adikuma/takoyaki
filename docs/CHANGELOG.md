@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
 
+## [0.3.0] - 2026-04-05
+
+### Added
+- Pinned projects
+
+### Changed
+- I preferred stability over trying to fix every terminal quirk at once and will keep refining it as testing continues
+
+### Fixed
+- Reduced terminal glitches during split close and pane switching
+- Plain folders now open cleanly without git and show no git state in the sidebar
+
 ## [0.2.0] - 2026-04-05
 
 ### Added

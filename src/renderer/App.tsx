@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { useStore } from './store'
 import { Titlebar } from './Titlebar'
@@ -7,31 +7,27 @@ import { Terminal } from './Terminal'
 import { Settings } from './Settings'
 import { Review } from './Review'
 import { colors, fonts } from './design'
+import { collectLeaves, collectWorkspaceTerminals, equalTerminalFrames } from './terminal-layout'
 import type { PaneTree, WorkspaceSnapshot } from './types'
 
-// renders the pane tree recursive
-// key={surfaceId} on terminals ensures react reuses existing instances on split
-// so this is just rendering the pane tree (if it's a leaf then render a terminal, if it's a split then render a panel group with two panels)
-function PaneView({ tree, focusedSurfaceId }: { tree: PaneTree; focusedSurfaceId: string | null }) {
+function PaneSlot({ surfaceId }: { surfaceId: string }) {
+  return <div className="h-full w-full min-h-0" data-surface-slot={surfaceId} />
+}
+
+// the tree only describes layout and never owns the terminal instances
+function PaneLayout({ tree }: { tree: PaneTree }) {
   if (tree.type === 'leaf') {
-    return (
-      <Terminal
-        key={tree.surfaceId}
-        surfaceId={tree.surfaceId}
-        terminalId={tree.terminalId}
-        isFocused={tree.surfaceId === focusedSurfaceId}
-      />
-    )
+    return <PaneSlot surfaceId={tree.surfaceId} />
   }
 
   return (
     <PanelGroup direction={tree.direction}>
       <Panel minSize={15}>
-        <PaneView tree={tree.first} focusedSurfaceId={focusedSurfaceId} />
+        <PaneLayout tree={tree.first} />
       </Panel>
       <PanelResizeHandle className="split-handle" data-direction={tree.direction} />
       <Panel minSize={15}>
-        <PaneView tree={tree.second} focusedSurfaceId={focusedSurfaceId} />
+        <PaneLayout tree={tree.second} />
       </Panel>
     </PanelGroup>
   )
@@ -41,23 +37,11 @@ function EmptyState() {
   return <div className="flex-1" />
 }
 
-interface PaneLeaf {
-  surfaceId: string
-  terminalId: string
-}
-
-function collectLeaves(tree: PaneTree): PaneLeaf[] {
-  if (tree.type === 'leaf') {
-    return [{ surfaceId: tree.surfaceId, terminalId: tree.terminalId }]
-  }
-  return [...collectLeaves(tree.first), ...collectLeaves(tree.second)]
-}
-
-// main app component
 export function App() {
   const workspaces = useStore((s) => s.workspaces)
   const activeId = useStore((s) => s.activeWorkspaceId)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const loadPinnedProjects = useStore((s) => s.loadPinnedProjects)
   const loadEditorState = useStore((s) => s.loadEditorState)
   const toast = useStore((s) => s.toast)
   const showToast = useStore((s) => s.showToast)
@@ -66,11 +50,11 @@ export function App() {
   const reviewWorkspaceId = useStore((s) => s.reviewWorkspaceId)
   const reviewFocusMode = useStore((s) => s.reviewFocusMode)
   const closeReview = useStore((s) => s.closeReview)
-  const activeWorkspace = workspaces.find((w) => w.id === activeId)
-  const reviewWorkspace = workspaces.find((w) => w.id === reviewWorkspaceId) || null
+  const activeWorkspace = workspaces.find((workspace) => workspace.id === activeId) || null
+  const reviewWorkspace = workspaces.find((workspace) => workspace.id === reviewWorkspaceId) || null
   const hideSidebar = activeView === 'review' && reviewFocusMode
 
-  const [tree, setTree] = useState<PaneTree | null>(null)
+  const [workspaceTrees, setWorkspaceTrees] = useState<Record<string, PaneTree | null | undefined>>({})
   const [focusedSurfaceId, setFocusedSurfaceId] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [isNarrowLayout, setIsNarrowLayout] = useState(() =>
@@ -78,7 +62,13 @@ export function App() {
   )
   const [sidebarDrawerOpen, setSidebarDrawerOpen] = useState(false)
   const [activeVisibleSurfaceId, setActiveVisibleSurfaceId] = useState<string | null>(null)
+  const [terminalFrames, setTerminalFrames] = useState<
+    Record<string, { top: number; left: number; width: number; height: number }>
+  >({})
   const selectWorkspace = useStore((s) => s.selectWorkspace)
+  const terminalViewportRef = useRef<HTMLDivElement>(null)
+
+  const tree = activeId ? workspaceTrees[activeId] || null : null
   const paneLeaves = useMemo(() => (tree ? collectLeaves(tree) : []), [tree])
   const visibleLeaf = useMemo(() => {
     if (!paneLeaves.length) return null
@@ -88,14 +78,22 @@ export function App() {
       paneLeaves[0]
     )
   }, [activeVisibleSurfaceId, focusedSurfaceId, paneLeaves])
+  // build the persistent terminal stage from cached trees so pane churn does not recreate xterm
+  const terminalViews = useMemo(
+    () => collectWorkspaceTerminals(workspaces, workspaceTrees),
+    [workspaces, workspaceTrees],
+  )
 
-  // initialize theme from the storage (previous session)
+  const rememberTree = useCallback((workspaceId: string | null, nextTree: PaneTree | null) => {
+    if (!workspaceId) return
+    setWorkspaceTrees((current) => ({ ...current, [workspaceId]: nextTree }))
+  }, [])
+
   useEffect(() => {
     const saved = localStorage.getItem('takoyaki-theme')
     if (saved === 'light') document.documentElement.dataset.theme = 'light'
   }, [])
 
-  // open the frickin settings for gear icon
   useEffect(() => {
     window.takoyakiOpenSettings = () => setSettingsOpen(true)
     return () => {
@@ -103,56 +101,80 @@ export function App() {
     }
   }, [])
 
-  // listen for workspace snapshots from main process
   useEffect(() => {
     if (!window.takoyaki) return
+    let disposed = false
 
-    // initial load
-    // get the list of workspaces and then put them in store
-    window.takoyaki.workspace.list().then((wsList) => {
-      useStore.setState({ workspaces: wsList })
-    })
-    // get current workspace and set it in store so that the right project is highlighteds
-    window.takoyaki.workspace.current().then((ws) => {
-      if (ws) {
-        useStore.setState({ activeWorkspaceId: ws.id })
-        setFocusedSurfaceId(ws.focusedSurfaceId)
-      }
-    })
-    // get the pane tree and set it in store so that the right panes are shown
-    window.takoyaki.workspace.tree().then((t) => {
-      if (t) setTree(t)
+    void Promise.all([
+      window.takoyaki.workspace.list(),
+      window.takoyaki.workspace.current(),
+      window.takoyaki.workspace.tree(),
+    ]).then(([workspaceList, currentWorkspace, currentTree]) => {
+      if (disposed) return
+      useStore.setState({
+        workspaces: workspaceList,
+        activeWorkspaceId: currentWorkspace?.id || null,
+      })
+      setFocusedSurfaceId(currentWorkspace?.focusedSurfaceId || null)
+      rememberTree(currentWorkspace?.id || null, currentTree || null)
     })
 
-    // on every change the main process sends a full snapshot of the current workspace
     const cleanup = window.takoyaki.workspace.onChange((snapshot: WorkspaceSnapshot) => {
-      if (snapshot) {
-        useStore.setState({
-          workspaces: snapshot.workspaces || [],
-          activeWorkspaceId: snapshot.activeWorkspaceId || null,
-        })
-        // update the pane tree in the store so that the right panes are shown
-        setTree(snapshot.tree || null)
-        if (snapshot.focusedSurfaceId !== undefined) setFocusedSurfaceId(snapshot.focusedSurfaceId)
-      }
+      useStore.setState({
+        workspaces: snapshot.workspaces || [],
+        activeWorkspaceId: snapshot.activeWorkspaceId || null,
+      })
+      if (snapshot.focusedSurfaceId !== undefined) setFocusedSurfaceId(snapshot.focusedSurfaceId)
+      rememberTree(snapshot.activeWorkspaceId, snapshot.tree || null)
     })
 
-    return cleanup
-  }, [])
+    return () => {
+      disposed = true
+      cleanup()
+    }
+  }, [rememberTree])
 
-  // check which editors are installed and the default form main process
+  useEffect(() => {
+    if (!activeId || workspaceTrees[activeId] !== undefined || !window.takoyaki?.workspace) return
+    let disposed = false
+
+    void window.takoyaki.workspace.tree(activeId).then((nextTree) => {
+      if (disposed) return
+      setWorkspaceTrees((current) => {
+        if (current[activeId] !== undefined) return current
+        return { ...current, [activeId]: nextTree || null }
+      })
+    })
+
+    return () => {
+      disposed = true
+    }
+  }, [activeId, workspaceTrees])
+
+  useEffect(() => {
+    setWorkspaceTrees((current) => {
+      const validIds = new Set(workspaces.map((workspace) => workspace.id))
+      const nextEntries = Object.entries(current).filter(([workspaceId]) => validIds.has(workspaceId))
+      if (nextEntries.length === Object.keys(current).length) return current
+      return Object.fromEntries(nextEntries)
+    })
+  }, [workspaces])
+
+  useEffect(() => {
+    // load sidebar preferences once and let the store keep the renderer copy in sync
+    void loadPinnedProjects()
+  }, [loadPinnedProjects])
+
   useEffect(() => {
     void loadEditorState()
   }, [loadEditorState])
 
-  // listen for window resize to set the narrow layout
   useEffect(() => {
     const onResize = () => setIsNarrowLayout(window.innerWidth < 900)
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // if the layout is not narrow, then close the sidebar drawer
   useEffect(() => {
     if (!isNarrowLayout) {
       setSidebarDrawerOpen(false)
@@ -165,7 +187,6 @@ export function App() {
     if (hideSidebar) setSidebarDrawerOpen(false)
   }, [hideSidebar])
 
-  // if there are no pane then set the active visible surface to empty state
   useEffect(() => {
     if (!paneLeaves.length) {
       setActiveVisibleSurfaceId(null)
@@ -186,7 +207,6 @@ export function App() {
     closeReview()
   }, [activeView, closeReview, reviewWorkspaceId, workspaces])
 
-  // status updates (running/finished)
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.status.onChange((statuses) => {
@@ -195,10 +215,9 @@ export function App() {
     return cleanup
   }, [])
 
-  // workspace activity tracking
   useEffect(() => {
     if (!window.takoyaki?.activity) return
-    window.takoyaki.activity.get().then((data) => {
+    void window.takoyaki.activity.get().then((data) => {
       useStore.getState().setWorkspaceActivity(data)
     })
     const cleanup = window.takoyaki.activity.onChange((data) => {
@@ -207,7 +226,6 @@ export function App() {
     return cleanup
   }, [])
 
-  // session save toast
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.session.onSaved(() => {
@@ -216,7 +234,6 @@ export function App() {
     return cleanup
   }, [showToast])
 
-  // project-aware agent toast
   useEffect(() => {
     if (!window.takoyaki?.toast) return
     const cleanup = window.takoyaki.toast.onAgentEvent((event) => {
@@ -233,7 +250,6 @@ export function App() {
     return cleanup
   }, [showToast])
 
-  // ui shortcuts
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.onShortcut((action: string) => {
@@ -260,6 +276,137 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [])
 
+  useLayoutEffect(() => {
+    const viewport = terminalViewportRef.current
+    if (!viewport) {
+      setTerminalFrames((current) => (Object.keys(current).length ? {} : current))
+      return
+    }
+
+    let frame = 0
+    const schedule = () => {
+      if (frame) cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0
+
+        const rootRect = viewport.getBoundingClientRect()
+        const nextFrames: Record<string, { top: number; left: number; width: number; height: number }> = {}
+        // measure the rendered slots after layout instead of driving state from ref callbacks
+        const nodes = viewport.querySelectorAll<HTMLDivElement>('[data-surface-slot]')
+        for (const node of nodes) {
+          const surfaceId = node.dataset.surfaceSlot
+          if (!surfaceId || !node.isConnected) continue
+          if (!node.isConnected) continue
+          const rect = node.getBoundingClientRect()
+          if (rect.width < 1 || rect.height < 1) continue
+          nextFrames[surfaceId] = {
+            top: Math.round(rect.top - rootRect.top),
+            left: Math.round(rect.left - rootRect.left),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          }
+        }
+
+        setTerminalFrames((current) => (equalTerminalFrames(current, nextFrames) ? current : nextFrames))
+      })
+    }
+
+    schedule()
+
+    const observer = new ResizeObserver(() => schedule())
+    observer.observe(viewport)
+    viewport.querySelectorAll<HTMLDivElement>('[data-surface-slot]').forEach((node) => observer.observe(node))
+    window.addEventListener('resize', schedule)
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      observer.disconnect()
+      window.removeEventListener('resize', schedule)
+    }
+  }, [activeId, activeVisibleSurfaceId, activeView, isNarrowLayout, tree])
+
+  const renderTerminalStage = (narrow: boolean) => (
+    <div className="relative flex-1 overflow-hidden flex flex-col">
+      {narrow && paneLeaves.length > 1 && (
+        <div
+          className="flex items-center gap-1 overflow-x-auto px-3 pt-2 shrink-0"
+          style={{ borderBottom: `1px solid ${colors.separator}` }}
+        >
+          {paneLeaves.map((leaf, index) => {
+            const active = visibleLeaf?.surfaceId === leaf.surfaceId
+            return (
+              <button
+                key={leaf.surfaceId}
+                onClick={() => {
+                  setActiveVisibleSurfaceId(leaf.surfaceId)
+                  void window.takoyaki?.surface.focus(leaf.surfaceId)
+                }}
+                className="whitespace-nowrap rounded-none border-b-2 px-2.5 pb-2 pt-1 text-[11px] transition-colors duration-[120ms]"
+                style={{
+                  background: 'transparent',
+                  borderBottomColor: active ? colors.accent : 'transparent',
+                  color: active ? colors.textPrimary : colors.textSecondary,
+                  fontFamily: fonts.mono,
+                }}
+                onMouseEnter={(event) => {
+                  if (!active) event.currentTarget.style.color = colors.textPrimary
+                }}
+                onMouseLeave={(event) => {
+                  if (!active) event.currentTarget.style.color = colors.textSecondary
+                }}
+              >
+                Pane {index + 1}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div ref={terminalViewportRef} className="relative flex-1 overflow-hidden">
+        {activeWorkspace && tree ? (
+          narrow && visibleLeaf ? (
+            <PaneSlot surfaceId={visibleLeaf.surfaceId} />
+          ) : !narrow ? (
+            <PaneLayout tree={tree} />
+          ) : (
+            <EmptyState />
+          )
+        ) : (
+          <EmptyState />
+        )}
+        {/* keep the live terminals mounted above the layout and only update their frame */}
+        <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
+          {terminalViews.map((terminal) => {
+            const frame =
+              activeView === 'terminal' && terminal.workspaceId === activeId
+                ? terminalFrames[terminal.surfaceId] || null
+                : null
+            return (
+              <Terminal
+                key={terminal.terminalId}
+                surfaceId={terminal.surfaceId}
+                terminalId={terminal.terminalId}
+                frame={frame}
+                isFocused={Boolean(
+                  frame &&
+                  activeView === 'terminal' &&
+                  terminal.workspaceId === activeId &&
+                  terminal.surfaceId === focusedSurfaceId,
+                )}
+              />
+            )
+          })}
+        </div>
+      </div>
+
+      {activeView === 'review' && reviewWorkspace && (
+        <div className="absolute inset-0 overflow-hidden" style={{ background: colors.bg }}>
+          <Review workspace={reviewWorkspace} narrow={narrow} />
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div className="relative flex flex-col h-screen w-screen overflow-hidden" style={{ background: colors.bg }}>
       <Titlebar
@@ -281,73 +428,12 @@ export function App() {
                 onRequestClose={() => setSidebarDrawerOpen(false)}
               />
             )}
-            {activeView === 'review' && reviewWorkspace ? (
-              <div key={`review-${reviewWorkspace.id}`} className="flex-1 overflow-hidden flex flex-col">
-                <Review workspace={reviewWorkspace} narrow />
-              </div>
-            ) : activeWorkspace && tree && visibleLeaf ? (
-              <div key={activeWorkspace.id} className="flex-1 overflow-hidden flex flex-col">
-                {paneLeaves.length > 1 && (
-                  <div
-                    className="flex items-center gap-1 overflow-x-auto px-3 pt-2 shrink-0"
-                    style={{ borderBottom: `1px solid ${colors.separator}` }}
-                  >
-                    {paneLeaves.map((leaf, index) => {
-                      const active = visibleLeaf.surfaceId === leaf.surfaceId
-                      return (
-                        <button
-                          key={leaf.surfaceId}
-                          onClick={() => {
-                            setActiveVisibleSurfaceId(leaf.surfaceId)
-                            void window.takoyaki?.surface.focus(leaf.surfaceId)
-                          }}
-                          className="whitespace-nowrap rounded-none border-b-2 px-2.5 pb-2 pt-1 text-[11px] transition-colors duration-[120ms]"
-                          style={{
-                            background: 'transparent',
-                            borderBottomColor: active ? colors.accent : 'transparent',
-                            color: active ? colors.textPrimary : colors.textSecondary,
-                            fontFamily: fonts.mono,
-                          }}
-                          onMouseEnter={(event) => {
-                            if (!active) event.currentTarget.style.color = colors.textPrimary
-                          }}
-                          onMouseLeave={(event) => {
-                            if (!active) event.currentTarget.style.color = colors.textSecondary
-                          }}
-                        >
-                          Pane {index + 1}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-                <div className="flex-1 overflow-hidden">
-                  <Terminal
-                    key={visibleLeaf.surfaceId}
-                    surfaceId={visibleLeaf.surfaceId}
-                    terminalId={visibleLeaf.terminalId}
-                    isFocused
-                  />
-                </div>
-              </div>
-            ) : (
-              <EmptyState />
-            )}
+            {renderTerminalStage(true)}
           </>
         ) : (
           <>
             {!hideSidebar && <Sidebar />}
-            {activeView === 'review' && reviewWorkspace ? (
-              <div key={`review-${reviewWorkspace.id}`} className="flex-1 overflow-hidden">
-                <Review workspace={reviewWorkspace} />
-              </div>
-            ) : activeWorkspace && tree ? (
-              <div key={activeWorkspace.id} className="flex-1 overflow-hidden">
-                <PaneView tree={tree} focusedSurfaceId={focusedSurfaceId} />
-              </div>
-            ) : (
-              <EmptyState />
-            )}
+            {renderTerminalStage(false)}
           </>
         )}
       </div>

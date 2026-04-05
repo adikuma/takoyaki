@@ -2,7 +2,7 @@ import { execFile, spawn, type SpawnOptions } from 'child_process'
 import { shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import * as os from 'os'
+import { PreferencesService } from './preferences'
 
 export type EditorKind = 'cursor' | 'vscode' | 'zed' | 'explorer'
 export type EditorLaunchTarget = 'preferred' | EditorKind
@@ -12,12 +12,6 @@ export interface EditorAvailability {
   available: boolean
 }
 
-interface EditorPreferences {
-  defaultEditor: EditorKind
-}
-
-const PREFERENCES_FILE = path.join(os.homedir(), '.takoyaki', 'preferences.json')
-const DEFAULT_EDITOR: EditorKind = 'cursor'
 const SUCCESS_TIMEOUT_MS = 1_500
 const ALL_EDITORS: EditorKind[] = ['cursor', 'vscode', 'zed', 'explorer']
 const CODE_EDITORS = ['cursor', 'vscode', 'zed'] as const
@@ -26,29 +20,6 @@ const editorCommands: Record<(typeof CODE_EDITORS)[number], string> = {
   cursor: 'cursor',
   vscode: 'code',
   zed: 'zed',
-}
-
-function readPreferences(): EditorPreferences {
-  try {
-    if (!fs.existsSync(PREFERENCES_FILE)) return { defaultEditor: DEFAULT_EDITOR }
-    const raw = JSON.parse(fs.readFileSync(PREFERENCES_FILE, 'utf-8')) as Partial<EditorPreferences>
-    if (
-      raw.defaultEditor === 'cursor' ||
-      raw.defaultEditor === 'vscode' ||
-      raw.defaultEditor === 'zed' ||
-      raw.defaultEditor === 'explorer'
-    ) {
-      return { defaultEditor: raw.defaultEditor }
-    }
-  } catch {
-    // editor resolution failed, non-fatal
-  }
-  return { defaultEditor: DEFAULT_EDITOR }
-}
-
-function writePreferences(preferences: EditorPreferences): void {
-  fs.mkdirSync(path.dirname(PREFERENCES_FILE), { recursive: true })
-  fs.writeFileSync(PREFERENCES_FILE, JSON.stringify(preferences, null, 2), 'utf-8')
 }
 
 function resolveCommand(command: string): Promise<string | null> {
@@ -147,13 +118,14 @@ function spawnAndWait(
 }
 
 export class EditorService {
+  constructor(private readonly preferences = new PreferencesService()) {}
+
   async getPreference(): Promise<EditorKind> {
-    return readPreferences().defaultEditor
+    return this.preferences.getDefaultEditor()
   }
 
   async setPreference(editor: EditorKind): Promise<EditorKind> {
-    writePreferences({ defaultEditor: editor })
-    return editor
+    return this.preferences.setDefaultEditor(editor)
   }
 
   async listAvailability(): Promise<EditorAvailability[]> {

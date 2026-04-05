@@ -32,6 +32,7 @@ export interface Workspace {
   focusedSurfaceId: string | null
   workingDirectory: string
   projectRoot: string
+  gitEnabled: boolean
   branchName: string | null
   baseBranch: string | null
   paneCount?: number
@@ -63,6 +64,7 @@ interface SavedWorkspaceState {
   focusedSurfaceId: string | null
   workingDirectory: string
   projectRoot: string
+  gitEnabled?: boolean
   branchName: string | null
   baseBranch: string | null
   paneTree: SavedPaneTree
@@ -93,7 +95,7 @@ export class WorkspaceManager extends EventEmitter {
     this.terminals = terminals
   }
 
-  create(title?: string, cwd?: string, projectRoot?: string): Workspace {
+  create(title?: string, cwd?: string, projectRoot?: string, gitEnabled = false): Workspace {
     const id = randomUUID()
     const surfaceId = randomUUID()
     const workingDirectory = cwd || os.homedir()
@@ -109,6 +111,7 @@ export class WorkspaceManager extends EventEmitter {
       focusedSurfaceId: surfaceId,
       workingDirectory,
       projectRoot: projectRoot || workingDirectory,
+      gitEnabled,
       branchName: null,
       baseBranch: null,
     }
@@ -122,13 +125,15 @@ export class WorkspaceManager extends EventEmitter {
 
     this.emitChange()
 
-    // resolve actual git branch in the background
-    resolveGitBranch(workingDirectory).then((branch) => {
-      if (branch && this.state.has(id)) {
-        entry.workspace.branchName = branch
-        this.emitChange()
-      }
-    })
+    // only resolve branch names for repos we already know are git backed
+    if (gitEnabled) {
+      resolveGitBranch(workingDirectory).then((branch) => {
+        if (branch && this.state.has(id)) {
+          entry.workspace.branchName = branch
+          this.emitChange()
+        }
+      })
+    }
 
     return this.serializeWorkspace(entry)
   }
@@ -187,6 +192,7 @@ export class WorkspaceManager extends EventEmitter {
     const existing = this.findTaskEntry(parentProjectId, worktreePath, branchName)
     if (existing) {
       existing.workspace.title = title
+      existing.workspace.gitEnabled = true
       existing.workspace.branchName = branchName
       existing.workspace.baseBranch = baseBranch
       existing.workspace.workingDirectory = worktreePath
@@ -208,6 +214,7 @@ export class WorkspaceManager extends EventEmitter {
       focusedSurfaceId: surfaceId,
       workingDirectory: worktreePath,
       projectRoot: worktreePath,
+      gitEnabled: true,
       branchName,
       baseBranch,
     }
@@ -232,12 +239,14 @@ export class WorkspaceManager extends EventEmitter {
         const nextBaseBranch = task.baseBranch ?? existing.workspace.baseBranch
         if (
           existing.workspace.title !== task.title ||
+          existing.workspace.gitEnabled !== true ||
           existing.workspace.branchName !== task.branchName ||
           existing.workspace.baseBranch !== nextBaseBranch ||
           existing.workspace.workingDirectory !== task.worktreePath ||
           existing.workspace.projectRoot !== task.worktreePath
         ) {
           existing.workspace.title = task.title
+          existing.workspace.gitEnabled = true
           existing.workspace.branchName = task.branchName
           existing.workspace.baseBranch = nextBaseBranch
           existing.workspace.workingDirectory = task.worktreePath
@@ -259,6 +268,7 @@ export class WorkspaceManager extends EventEmitter {
         focusedSurfaceId: surfaceId,
         workingDirectory: task.worktreePath,
         projectRoot: task.worktreePath,
+        gitEnabled: true,
         branchName: task.branchName,
         baseBranch: task.baseBranch,
       }
@@ -453,6 +463,7 @@ export class WorkspaceManager extends EventEmitter {
       focusedSurfaceId: entry.workspace.focusedSurfaceId,
       workingDirectory: entry.workspace.workingDirectory,
       projectRoot: entry.workspace.projectRoot,
+      gitEnabled: entry.workspace.gitEnabled,
       branchName: entry.workspace.branchName,
       baseBranch: entry.workspace.baseBranch,
       paneTree: this.stripTerminalIds(entry.paneTree),
@@ -472,6 +483,7 @@ export class WorkspaceManager extends EventEmitter {
         : surfaceIds[0] || null,
       workingDirectory: snapshot.workingDirectory,
       projectRoot: snapshot.projectRoot,
+      gitEnabled: snapshot.kind === 'task' ? true : Boolean(snapshot.gitEnabled ?? snapshot.branchName),
       branchName: snapshot.branchName,
       baseBranch: snapshot.baseBranch,
     }
@@ -503,6 +515,7 @@ export class WorkspaceManager extends EventEmitter {
           focusedSurfaceId: entry.workspace.focusedSurfaceId,
           workingDirectory: entry.workspace.workingDirectory,
           projectRoot: entry.workspace.projectRoot,
+          gitEnabled: entry.workspace.gitEnabled,
           branchName: entry.workspace.branchName,
           baseBranch: entry.workspace.baseBranch,
           // save tree structure without terminal ids (they'll be recreated)
@@ -541,6 +554,8 @@ export class WorkspaceManager extends EventEmitter {
           focusedSurfaceId: surfaceIds.includes(ws.focusedSurfaceId) ? ws.focusedSurfaceId : surfaceIds[0] || null,
           workingDirectory: ws.workingDirectory,
           projectRoot: ws.projectRoot || ws.workingDirectory,
+          // old state files will not have gitEnabled so fall back to branch data when needed
+          gitEnabled: ws.kind === 'task' ? true : Boolean(ws.gitEnabled ?? ws.branchName),
           branchName: ws.branchName || null,
           baseBranch: ws.baseBranch || null,
         }

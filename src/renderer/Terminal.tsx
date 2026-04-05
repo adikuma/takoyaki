@@ -1,54 +1,14 @@
-// xterm.js terminal component
-// uses a module-level pool so xterm instances survive react remounts (splits/closes)
-// the react component just attaches/detaches the pool's container div
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { getTerminalTheme, fonts, colors, sizes } from './design'
 import type { TerminalRuntimeInfo } from './types'
+import type { TerminalFrame } from './terminal-layout'
 import '@xterm/xterm/css/xterm.css'
 
-// pool entry: xterm instance + addons + container div + persistent listeners
-interface PoolEntry {
-  term: XTerm
-  fit: FitAddon
-  search: SearchAddon
-  container: HTMLDivElement
-  dataCleanup: (() => void) | null
-  exitCleanup: (() => void) | null
-  exited: boolean
-}
-
-// xterm instances live here, outside react lifecycle
-const terminalPool = new Map<string, PoolEntry>()
-const terminalPoolPending = new Map<string, Promise<PoolEntry>>()
 let terminalRuntimeInfoPromise: Promise<TerminalRuntimeInfo> | null = null
-
-interface XTermWithViewportCore extends XTerm {
-  _core?: {
-    viewport?: {
-      syncScrollArea: (immediate?: boolean) => void
-    }
-  }
-}
-
-function syncViewportAfterAttach(term: XTerm): void {
-  const viewportY = term.buffer.active.viewportY
-  const core = term as XTermWithViewportCore
-
-  // xterm does not expose a public reattach hook, but syncing the internal viewport
-  // preserves the existing scroll position and recalculates the scrollbar geometry.
-  core._core?.viewport?.syncScrollArea(true)
-  term.refresh(0, term.rows - 1)
-
-  // if the viewport sync hook is unavailable, fall back to the old behavior
-  if (!core._core?.viewport) {
-    term.scrollToBottom()
-    if (viewportY !== term.buffer.active.viewportY) term.scrollToLine(viewportY)
-  }
-}
 
 function getTerminalRuntimeInfo(): Promise<TerminalRuntimeInfo> {
   if (!terminalRuntimeInfoPromise) {
@@ -64,129 +24,33 @@ function getTerminalRuntimeInfo(): Promise<TerminalRuntimeInfo> {
   return terminalRuntimeInfoPromise
 }
 
-async function createEntry(terminalId: string): Promise<PoolEntry> {
-  const runtimeInfo = await getTerminalRuntimeInfo()
-  const existing = terminalPool.get(terminalId)
-  if (existing) return existing
-
-  const term = new XTerm({
-    fontFamily: fonts.mono,
-    fontSize: 14,
-    lineHeight: 1.25,
-    cursorBlink: false,
-    cursorStyle: 'bar',
-    cursorInactiveStyle: 'none',
-    scrollback: 5000,
-    allowProposedApi: true,
-    theme: getTerminalTheme((localStorage.getItem('takoyaki-theme') as 'dark' | 'light') || 'dark'),
-    windowsPty: runtimeInfo.windowsPty || undefined,
-  })
-
-  const fit = new FitAddon()
-  const search = new SearchAddon()
-  term.loadAddon(fit)
-  term.loadAddon(search)
-
-  // clipboard: ctrl+v pastes, ctrl+c copies selection or sends SIGINT
-  term.attachCustomKeyEventHandler((e) => {
-    if (e.type !== 'keydown') return true
-    if (e.ctrlKey && e.key === 'v') {
-      e.preventDefault()
-      window.takoyaki.clipboard.readText().then((text) => {
-        if (text) term.paste(text)
-      })
-      return false
-    }
-    if (e.ctrlKey && e.key === 'c') {
-      const sel = term.getSelection()
-      if (sel) {
-        void window.takoyaki.clipboard.writeText(sel)
-        term.clearSelection()
-        return false
-      }
-      return true
-    }
-    return true
-  })
-
-  // container div that xterm renders into (created once, moved via appendChild)
-  const container = document.createElement('div')
-  container.style.width = '100%'
-  container.style.height = '100%'
-  container.style.padding = '8px 10px 4px 10px'
-  term.open(container)
-
-  const entry: PoolEntry = { term, fit, search, container, dataCleanup: null, exitCleanup: null, exited: false }
-
-  // persistent listeners: pty data flows to xterm even while detached
-  entry.dataCleanup = window.takoyaki.terminal.onData((id, data) => {
-    if (id === terminalId) term.write(data)
-  })
-
-  entry.exitCleanup = window.takoyaki.terminal.onExit((id, code) => {
-    if (id === terminalId) {
-      term.write(`\r\n[exited: ${code}]`)
-      entry.exited = true
-    }
-  })
-
-  terminalPool.set(terminalId, entry)
-  return entry
-}
-
-function getOrCreateEntry(terminalId: string): Promise<PoolEntry> {
-  const existing = terminalPool.get(terminalId)
-  if (existing) return Promise.resolve(existing)
-
-  const pending = terminalPoolPending.get(terminalId)
-  if (pending) return pending
-
-  const nextEntry = createEntry(terminalId)
-    .then((entry) => {
-      terminalPoolPending.delete(terminalId)
-      return entry
-    })
-    .catch((error) => {
-      terminalPoolPending.delete(terminalId)
-      throw error
-    })
-
-  terminalPoolPending.set(terminalId, nextEntry)
-  return nextEntry
-}
-
-function disposeEntry(terminalId: string): void {
-  const entry = terminalPool.get(terminalId)
-  if (!entry) return
-  entry.dataCleanup?.()
-  entry.exitCleanup?.()
-  entry.term.dispose()
-  terminalPool.delete(terminalId)
-}
-
 interface Props {
   surfaceId: string
   terminalId: string
+  frame: TerminalFrame | null
   isFocused?: boolean
 }
 
-export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
+export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
-  const isReadyRef = useRef(false)
-  const isFocusedRef = useRef(Boolean(isFocused))
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
-  const requestStableResizeRef = useRef<(() => void) | null>(null)
-  const didSyncViewportAfterAttachRef = useRef(false)
+  const frameRef = useRef<TerminalFrame | null>(frame)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [isAlternateScreen, setIsAlternateScreen] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const isVisible = Boolean(frame && frame.width >= 24 && frame.height >= 24)
 
-  const clearPendingResize = () => {
+  // keep the latest frame outside the setup effect so visibility changes do not recreate xterm
+  useEffect(() => {
+    frameRef.current = frame
+  }, [frame])
+
+  const clearPendingResize = useCallback(() => {
     if (resizeTimeoutRef.current) {
       clearTimeout(resizeTimeoutRef.current)
       resizeTimeoutRef.current = null
@@ -195,118 +59,132 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
       cancelAnimationFrame(resizeFrameRef.current)
       resizeFrameRef.current = null
     }
-  }
+  }, [])
 
-  useEffect(() => {
-    isFocusedRef.current = Boolean(isFocused)
-  }, [isFocused])
+  const requestResize = useCallback(() => {
+    clearPendingResize()
+    const nextFrame = frameRef.current
+    if (!nextFrame || nextFrame.width < 24 || nextFrame.height < 24) return
+
+    resizeTimeoutRef.current = setTimeout(() => {
+      resizeTimeoutRef.current = null
+      resizeFrameRef.current = requestAnimationFrame(() => {
+        resizeFrameRef.current = null
+
+        const mountNode = containerRef.current
+        const term = termRef.current
+        const fit = fitRef.current
+        if (!mountNode?.isConnected || !term || !fit) return
+
+        const rect = mountNode.getBoundingClientRect()
+        if (rect.width < 24 || rect.height < 24) return
+
+        try {
+          const dims = fit.proposeDimensions()
+          if (!dims || dims.cols < 2 || dims.rows < 1) return
+
+          if (term.cols !== dims.cols || term.rows !== dims.rows) {
+            term.resize(dims.cols, dims.rows)
+            void window.takoyaki.terminal.resize(terminalId, dims.cols, dims.rows)
+          }
+        } catch {
+          // xterm can throw while tearing down during fast pane changes
+        }
+      })
+    }, 32)
+  }, [clearPendingResize, terminalId])
 
   useEffect(() => {
     if (!containerRef.current || !window.takoyaki) return
+
     let disposed = false
-    const mountNode = containerRef.current
-    let entry: PoolEntry | null = null
     let inputDispose: { dispose: () => void } | null = null
     let parsedDispose: { dispose: () => void } | null = null
+    let ptyDataCleanup: (() => void) | null = null
+    let ptyExitCleanup: (() => void) | null = null
     let observer: ResizeObserver | null = null
-    const onThemeChanged = (e: Event) => {
-      const mode = (e as CustomEvent).detail as 'dark' | 'light'
+
+    const onThemeChanged = (event: Event) => {
+      const mode = (event as CustomEvent).detail as 'dark' | 'light'
       if (termRef.current) termRef.current.options.theme = getTerminalTheme(mode)
     }
 
-    void getOrCreateEntry(terminalId)
-      .then((nextEntry) => {
-        if (disposed) return
+    // create one xterm per terminal id and let later frame changes only move and resize it
+    void getTerminalRuntimeInfo()
+      .then((runtimeInfo) => {
+        if (disposed || !containerRef.current) return
 
-        entry = nextEntry
-        const { term, fit, search } = nextEntry
+        const term = new XTerm({
+          fontFamily: fonts.mono,
+          fontSize: 14,
+          lineHeight: 1.25,
+          cursorBlink: false,
+          cursorStyle: 'bar',
+          cursorInactiveStyle: 'none',
+          scrollback: 5000,
+          allowProposedApi: true,
+          theme: getTerminalTheme((localStorage.getItem('takoyaki-theme') as 'dark' | 'light') || 'dark'),
+          windowsPty: runtimeInfo.windowsPty || undefined,
+        })
+
+        const fit = new FitAddon()
+        const search = new SearchAddon()
+        term.loadAddon(fit)
+        term.loadAddon(search)
+
+        term.attachCustomKeyEventHandler((event) => {
+          if (event.type !== 'keydown') return true
+          if (event.ctrlKey && event.key === 'v') {
+            event.preventDefault()
+            window.takoyaki.clipboard.readText().then((text) => {
+              if (text) term.paste(text)
+            })
+            return false
+          }
+          if (event.ctrlKey && event.key === 'c') {
+            const selection = term.getSelection()
+            if (selection) {
+              void window.takoyaki.clipboard.writeText(selection)
+              term.clearSelection()
+              return false
+            }
+            return true
+          }
+          return true
+        })
 
         termRef.current = term
         fitRef.current = fit
         searchAddonRef.current = search
 
-        mountNode.appendChild(nextEntry.container)
-        isReadyRef.current = true
-        didSyncViewportAfterAttachRef.current = false
-
-        requestStableResizeRef.current = () => {
-          clearPendingResize()
-          resizeTimeoutRef.current = setTimeout(() => {
-            resizeTimeoutRef.current = null
-
-            const measureStableSize = (
-              previousRect?: { width: number; height: number },
-              previousDims?: { cols: number; rows: number },
-            ) => {
-              resizeFrameRef.current = requestAnimationFrame(() => {
-                resizeFrameRef.current = null
-                if (disposed) return
-
-                const activeMountNode = containerRef.current
-                const activeTerm = termRef.current
-                const activeFit = fitRef.current
-                if (!activeMountNode?.isConnected || !activeTerm || !activeFit) return
-
-                try {
-                  const dims = activeFit.proposeDimensions()
-                  if (!dims) return
-
-                  const rect = activeMountNode.getBoundingClientRect()
-                  const nextRect = { width: Math.round(rect.width), height: Math.round(rect.height) }
-                  const nextDims = { cols: dims.cols, rows: dims.rows }
-
-                  if (!previousRect || !previousDims) {
-                    measureStableSize(nextRect, nextDims)
-                    return
-                  }
-
-                  const rectStable = previousRect.width === nextRect.width && previousRect.height === nextRect.height
-                  const dimsStable = previousDims.cols === nextDims.cols && previousDims.rows === nextDims.rows
-                  if (!rectStable || !dimsStable) {
-                    requestStableResizeRef.current?.()
-                    return
-                  }
-
-                  if (activeTerm.cols !== nextDims.cols || activeTerm.rows !== nextDims.rows) {
-                    activeTerm.resize(nextDims.cols, nextDims.rows)
-                    window.takoyaki.terminal.resize(terminalId, nextDims.cols, nextDims.rows)
-                  }
-
-                  if (!didSyncViewportAfterAttachRef.current) {
-                    didSyncViewportAfterAttachRef.current = true
-                    syncViewportAfterAttach(activeTerm)
-                  }
-                } catch {
-                  // fit or resize can fail during teardown
-                }
-              })
-            }
-
-            measureStableSize()
-          }, 48)
-        }
+        const mountNode = containerRef.current
+        mountNode.style.width = '100%'
+        mountNode.style.height = '100%'
+        mountNode.style.padding = '8px 10px 4px 10px'
+        term.open(mountNode)
 
         window.addEventListener('takoyaki-theme-changed', onThemeChanged)
+
         inputDispose = term.onData((data) => {
-          window.takoyaki.terminal.write(terminalId, data)
+          void window.takoyaki.terminal.write(terminalId, data)
         })
 
-        let didSettledFit = false
         parsedDispose = term.onWriteParsed(() => {
           const nextAlternate = term.buffer.active.type === 'alternate'
           setIsAlternateScreen((current) => (current === nextAlternate ? current : nextAlternate))
-          if (!didSettledFit) {
-            didSettledFit = true
-            requestStableResizeRef.current?.()
-          }
         })
 
-        observer = new ResizeObserver(() => requestStableResizeRef.current?.())
-        observer.observe(mountNode)
+        ptyDataCleanup = window.takoyaki.terminal.onData((id, data) => {
+          if (id === terminalId) term.write(data)
+        })
 
-        requestStableResizeRef.current()
-        if (isFocusedRef.current) term.focus()
-        else term.blur()
+        ptyExitCleanup = window.takoyaki.terminal.onExit((id, code) => {
+          if (id === terminalId) term.write(`\r\n[exited: ${code}]`)
+        })
+
+        observer = new ResizeObserver(() => requestResize())
+        observer.observe(mountNode)
+        requestResize()
       })
       .catch(() => {
         // terminal init failed, keep pane empty
@@ -314,54 +192,54 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
 
     return () => {
       disposed = true
-      isReadyRef.current = false
       clearPendingResize()
-      requestStableResizeRef.current = null
-      window.removeEventListener('takoyaki-theme-changed', onThemeChanged)
       observer?.disconnect()
       inputDispose?.dispose()
       parsedDispose?.dispose()
-      termRef.current = null
-      fitRef.current = null
+      ptyDataCleanup?.()
+      ptyExitCleanup?.()
+      window.removeEventListener('takoyaki-theme-changed', onThemeChanged)
       searchAddonRef.current = null
+      fitRef.current = null
+      termRef.current?.dispose()
+      termRef.current = null
       setIsAlternateScreen(false)
-
-      // detach container from dom (do NOT dispose xterm)
-      if (entry && mountNode.contains(entry.container)) {
-        mountNode.removeChild(entry.container)
-      }
-
-      // only dispose if the pty is dead (workspace closed this terminal)
-      if (entry?.exited) {
-        disposeEntry(terminalId)
-      }
     }
-  }, [terminalId])
+  }, [clearPendingResize, requestResize, terminalId])
+
+  useEffect(() => {
+    if (!isVisible) {
+      termRef.current?.blur()
+      return
+    }
+
+    // visible frame changes should only trigger resize and never rebuild the terminal
+    requestResize()
+  }, [frame?.height, frame?.left, frame?.top, frame?.width, isVisible, requestResize])
 
   useEffect(() => {
     const term = termRef.current
-    if (!term || !isReadyRef.current) return
+    if (!term) return
 
-    if (isFocused) {
+    if (isFocused && isVisible) {
       term.focus()
-      requestStableResizeRef.current?.()
+      requestResize()
       return
     }
 
     term.blur()
-  }, [isFocused, terminalId])
+  }, [isFocused, isVisible, requestResize])
 
-  // ctrl+f opens search
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.onShortcut((action: string) => {
-      if (action === 'find' && isFocused) {
+      if (action === 'find' && isFocused && isVisible) {
         setSearchOpen(true)
         setTimeout(() => searchInputRef.current?.focus(), 50)
       }
     })
     return cleanup
-  }, [isFocused])
+  }, [isFocused, isVisible])
 
   const doSearch = (query: string, direction: 'next' | 'prev' = 'next') => {
     if (!searchAddonRef.current || !query) return
@@ -376,19 +254,44 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
   }
 
   const handleClick = () => {
-    if (window.takoyaki) window.takoyaki.surface.focus(surfaceId)
+    if (!isVisible) return
+    void window.takoyaki?.surface.focus(surfaceId)
     termRef.current?.focus()
   }
 
+  const wrapperStyle = frame
+    ? {
+        top: frame.top,
+        left: frame.left,
+        width: frame.width,
+        height: frame.height,
+        opacity: 1,
+        visibility: 'visible' as const,
+        pointerEvents: 'auto' as const,
+      }
+    : {
+        top: 0,
+        left: 0,
+        width: 0,
+        height: 0,
+        opacity: 0,
+        visibility: 'hidden' as const,
+        pointerEvents: 'none' as const,
+      }
+
   return (
     <div
-      className={`w-full h-full flex flex-col ${isAlternateScreen ? 'takoyaki-pane-alt' : 'takoyaki-pane-shell'}`}
-      style={{ background: colors.terminalBg }}
+      className={`absolute flex flex-col overflow-hidden ${isAlternateScreen ? 'takoyaki-pane-alt' : 'takoyaki-pane-shell'}`}
+      style={{
+        ...wrapperStyle,
+        background: colors.terminalBg,
+        zIndex: isFocused && isVisible ? 2 : 1,
+      }}
       onClick={handleClick}
     >
-      {isFocused && <div style={{ height: 2, background: colors.accentSoft, flexShrink: 0 }} />}
+      {isFocused && isVisible && <div style={{ height: 2, background: colors.accentSoft, flexShrink: 0 }} />}
 
-      {searchOpen && (
+      {searchOpen && isVisible && (
         <div
           className="flex items-center gap-2 px-3 py-1.5 shrink-0"
           style={{ borderBottom: `1px solid ${colors.separator}` }}
@@ -396,13 +299,13 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
           <input
             ref={searchInputRef}
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value)
-              doSearch(e.target.value)
+            onChange={(event) => {
+              setSearchQuery(event.target.value)
+              doSearch(event.target.value)
             }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') doSearch(searchQuery, e.shiftKey ? 'prev' : 'next')
-              if (e.key === 'Escape') closeSearch()
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') doSearch(searchQuery, event.shiftKey ? 'prev' : 'next')
+              if (event.key === 'Escape') closeSearch()
             }}
             placeholder="find..."
             className="flex-1 bg-transparent text-[12px] outline-none takoyaki-input"
@@ -422,7 +325,7 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
           >
             <ChevronDown size={sizes.iconSm} strokeWidth={1.8} />
           </button>
-          <button onClick={closeSearch} style={{ color: colors.textMuted }}>
+          <button onClick={closeSearch} style={{ color: colors.textMuted }} aria-label="close terminal search">
             <X size={sizes.iconSm} strokeWidth={1.8} />
           </button>
         </div>
