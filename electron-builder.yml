@@ -1,5 +1,6 @@
-appId: com.mux.app
-productName: mux
+appId: com.adikuma.takoyaki
+productName: Takoyaki
+artifactName: Takoyaki-${version}.${ext}
 directories:
   output: release
   buildResources: build

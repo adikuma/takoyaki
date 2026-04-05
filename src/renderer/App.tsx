@@ -5,6 +5,7 @@ import { Titlebar } from './Titlebar'
 import { Sidebar } from './Sidebar'
 import { Terminal } from './Terminal'
 import { Settings } from './Settings'
+import { Review } from './Review'
 import { colors, fonts } from './design'
 import type { PaneTree, WorkspaceSnapshot } from './types'
 
@@ -61,7 +62,13 @@ export function App() {
   const toast = useStore((s) => s.toast)
   const showToast = useStore((s) => s.showToast)
   const clearToast = useStore((s) => s.clearToast)
+  const activeView = useStore((s) => s.activeView)
+  const reviewWorkspaceId = useStore((s) => s.reviewWorkspaceId)
+  const reviewFocusMode = useStore((s) => s.reviewFocusMode)
+  const closeReview = useStore((s) => s.closeReview)
   const activeWorkspace = workspaces.find((w) => w.id === activeId)
+  const reviewWorkspace = workspaces.find((w) => w.id === reviewWorkspaceId) || null
+  const hideSidebar = activeView === 'review' && reviewFocusMode
 
   const [tree, setTree] = useState<PaneTree | null>(null)
   const [focusedSurfaceId, setFocusedSurfaceId] = useState<string | null>(null)
@@ -84,41 +91,41 @@ export function App() {
 
   // initialize theme from the storage (previous session)
   useEffect(() => {
-    const saved = localStorage.getItem('mux-theme')
+    const saved = localStorage.getItem('takoyaki-theme')
     if (saved === 'light') document.documentElement.dataset.theme = 'light'
   }, [])
 
   // open the frickin settings for gear icon
   useEffect(() => {
-    window.muxOpenSettings = () => setSettingsOpen(true)
+    window.takoyakiOpenSettings = () => setSettingsOpen(true)
     return () => {
-      delete window.muxOpenSettings
+      delete window.takoyakiOpenSettings
     }
   }, [])
 
   // listen for workspace snapshots from main process
   useEffect(() => {
-    if (!window.mux) return
+    if (!window.takoyaki) return
 
     // initial load
     // get the list of workspaces and then put them in store
-    window.mux.workspace.list().then((wsList) => {
+    window.takoyaki.workspace.list().then((wsList) => {
       useStore.setState({ workspaces: wsList })
     })
     // get current workspace and set it in store so that the right project is highlighteds
-    window.mux.workspace.current().then((ws) => {
+    window.takoyaki.workspace.current().then((ws) => {
       if (ws) {
         useStore.setState({ activeWorkspaceId: ws.id })
         setFocusedSurfaceId(ws.focusedSurfaceId)
       }
     })
     // get the pane tree and set it in store so that the right panes are shown
-    window.mux.workspace.tree().then((t) => {
+    window.takoyaki.workspace.tree().then((t) => {
       if (t) setTree(t)
     })
 
     // on every change the main process sends a full snapshot of the current workspace
-    const cleanup = window.mux.workspace.onChange((snapshot: WorkspaceSnapshot) => {
+    const cleanup = window.takoyaki.workspace.onChange((snapshot: WorkspaceSnapshot) => {
       if (snapshot) {
         useStore.setState({
           workspaces: snapshot.workspaces || [],
@@ -154,6 +161,10 @@ export function App() {
     if (activeId) setSidebarDrawerOpen(false)
   }, [activeId, isNarrowLayout])
 
+  useEffect(() => {
+    if (hideSidebar) setSidebarDrawerOpen(false)
+  }, [hideSidebar])
+
   // if there are no pane then set the active visible surface to empty state
   useEffect(() => {
     if (!paneLeaves.length) {
@@ -169,10 +180,16 @@ export function App() {
     }
   }, [activeVisibleSurfaceId, focusedSurfaceId, paneLeaves])
 
+  useEffect(() => {
+    if (activeView !== 'review' || !reviewWorkspaceId) return
+    if (workspaces.some((workspace) => workspace.id === reviewWorkspaceId)) return
+    closeReview()
+  }, [activeView, closeReview, reviewWorkspaceId, workspaces])
+
   // status updates (running/finished)
   useEffect(() => {
-    if (!window.mux) return
-    const cleanup = window.mux.status.onChange((statuses) => {
+    if (!window.takoyaki) return
+    const cleanup = window.takoyaki.status.onChange((statuses) => {
       useStore.getState().setSurfaceStatuses(statuses)
     })
     return cleanup
@@ -180,11 +197,11 @@ export function App() {
 
   // workspace activity tracking
   useEffect(() => {
-    if (!window.mux?.activity) return
-    window.mux.activity.get().then((data) => {
+    if (!window.takoyaki?.activity) return
+    window.takoyaki.activity.get().then((data) => {
       useStore.getState().setWorkspaceActivity(data)
     })
-    const cleanup = window.mux.activity.onChange((data) => {
+    const cleanup = window.takoyaki.activity.onChange((data) => {
       useStore.getState().setWorkspaceActivity(data)
     })
     return cleanup
@@ -192,8 +209,8 @@ export function App() {
 
   // session save toast
   useEffect(() => {
-    if (!window.mux) return
-    const cleanup = window.mux.session.onSaved(() => {
+    if (!window.takoyaki) return
+    const cleanup = window.takoyaki.session.onSaved(() => {
       showToast({ message: 'Session saved' }, 2000)
     })
     return cleanup
@@ -201,8 +218,8 @@ export function App() {
 
   // project-aware agent toast
   useEffect(() => {
-    if (!window.mux?.toast) return
-    const cleanup = window.mux.toast.onAgentEvent((event) => {
+    if (!window.takoyaki?.toast) return
+    const cleanup = window.takoyaki.toast.onAgentEvent((event) => {
       const label = event.status === 'failed' ? 'failed' : 'finished'
       showToast(
         {
@@ -218,8 +235,8 @@ export function App() {
 
   // ui shortcuts
   useEffect(() => {
-    if (!window.mux) return
-    const cleanup = window.mux.onShortcut((action: string) => {
+    if (!window.takoyaki) return
+    const cleanup = window.takoyaki.onShortcut((action: string) => {
       if (action === 'toggle-sidebar') {
         if (isNarrowLayout) setSidebarDrawerOpen((open) => !open)
         else toggleSidebar()
@@ -229,14 +246,14 @@ export function App() {
   }, [isNarrowLayout, toggleSidebar])
 
   useEffect(() => {
-    if (!window.mux?.workspace) return
+    if (!window.takoyaki?.workspace) return
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return
       if (event.altKey) return
       if (event.key !== 'Tab') return
       event.preventDefault()
       event.stopPropagation()
-      void window.mux.workspace.cycleVisible(event.shiftKey ? 'prev' : 'next')
+      void window.takoyaki.workspace.cycleVisible(event.shiftKey ? 'prev' : 'next')
     }
 
     window.addEventListener('keydown', handleKeyDown, true)
@@ -246,8 +263,9 @@ export function App() {
   return (
     <div className="relative flex flex-col h-screen w-screen overflow-hidden" style={{ background: colors.bg }}>
       <Titlebar
-        narrow={isNarrowLayout}
+        narrow={isNarrowLayout && !hideSidebar}
         onToggleSidebar={() => {
+          if (hideSidebar) return
           if (isNarrowLayout) setSidebarDrawerOpen((open) => !open)
           else toggleSidebar()
         }}
@@ -255,13 +273,19 @@ export function App() {
       <div className="flex flex-1 overflow-hidden">
         {isNarrowLayout ? (
           <>
-            <Sidebar
-              narrow
-              drawerOpen={sidebarDrawerOpen}
-              onRequestOpen={() => setSidebarDrawerOpen(true)}
-              onRequestClose={() => setSidebarDrawerOpen(false)}
-            />
-            {activeWorkspace && tree && visibleLeaf ? (
+            {!hideSidebar && (
+              <Sidebar
+                narrow
+                drawerOpen={sidebarDrawerOpen}
+                onRequestOpen={() => setSidebarDrawerOpen(true)}
+                onRequestClose={() => setSidebarDrawerOpen(false)}
+              />
+            )}
+            {activeView === 'review' && reviewWorkspace ? (
+              <div key={`review-${reviewWorkspace.id}`} className="flex-1 overflow-hidden flex flex-col">
+                <Review workspace={reviewWorkspace} narrow />
+              </div>
+            ) : activeWorkspace && tree && visibleLeaf ? (
               <div key={activeWorkspace.id} className="flex-1 overflow-hidden flex flex-col">
                 {paneLeaves.length > 1 && (
                   <div
@@ -275,7 +299,7 @@ export function App() {
                           key={leaf.surfaceId}
                           onClick={() => {
                             setActiveVisibleSurfaceId(leaf.surfaceId)
-                            void window.mux?.surface.focus(leaf.surfaceId)
+                            void window.takoyaki?.surface.focus(leaf.surfaceId)
                           }}
                           className="whitespace-nowrap rounded-none border-b-2 px-2.5 pb-2 pt-1 text-[11px] transition-colors duration-[120ms]"
                           style={{
@@ -312,8 +336,12 @@ export function App() {
           </>
         ) : (
           <>
-            <Sidebar />
-            {activeWorkspace && tree ? (
+            {!hideSidebar && <Sidebar />}
+            {activeView === 'review' && reviewWorkspace ? (
+              <div key={`review-${reviewWorkspace.id}`} className="flex-1 overflow-hidden">
+                <Review workspace={reviewWorkspace} />
+              </div>
+            ) : activeWorkspace && tree ? (
               <div key={activeWorkspace.id} className="flex-1 overflow-hidden">
                 <PaneView tree={tree} focusedSurfaceId={focusedSurfaceId} />
               </div>
@@ -326,7 +354,7 @@ export function App() {
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {toast && (
         <div
-          className="fixed z-50 mux-toast-in"
+          className="fixed z-50 takoyaki-toast-in"
           style={{
             bottom: 20,
             right: 20,

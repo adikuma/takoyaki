@@ -1,9 +1,17 @@
 // this is my first time with zustand so don't roast me
 import { create } from 'zustand'
-import type { EditorAvailability, EditorKind, HookSurfaceStatus, Workspace } from './types'
+import type {
+  EditorAvailability,
+  EditorKind,
+  HookSurfaceStatus,
+  ReviewPatch,
+  ReviewSnapshot,
+  ReviewView,
+  Workspace,
+} from './types'
 
 // guard for when running outside electron (e.g. vite dev server in browser)
-const api = typeof window !== 'undefined' && window.mux ? window.mux : null
+const api = typeof window !== 'undefined' && window.takoyaki ? window.takoyaki : null
 
 interface ToastState {
   message: string
@@ -12,6 +20,10 @@ interface ToastState {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function getReviewErrorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unable to load review.'
+}
 
 interface MuxStore {
   workspaces: Workspace[]
@@ -37,9 +49,23 @@ interface MuxStore {
   toast: ToastState | null
   showToast: (toast: ToastState, durationMs?: number) => void
   clearToast: () => void
+  activeView: ReviewView
+  reviewWorkspaceId: string | null
+  selectedReviewFilePath: string | null
+  reviewSnapshots: Record<string, ReviewSnapshot | undefined>
+  reviewPatches: Record<string, Record<string, ReviewPatch | undefined> | undefined>
+  reviewFocusMode: boolean
+  reviewLoading: boolean
+  reviewPatchLoading: boolean
+  reviewError: string | null
+  openReview: (workspaceId: string) => Promise<void>
+  closeReview: () => void
+  refreshReview: () => Promise<void>
+  selectReviewFile: (filePath: string) => Promise<void>
+  toggleReviewFocusMode: () => void
 }
 
-export const useStore = create<MuxStore>((set) => ({
+export const useStore = create<MuxStore>((set, get) => ({
   workspaces: [],
   activeWorkspaceId: null,
   sidebarCollapsed: false,
@@ -62,7 +88,13 @@ export const useStore = create<MuxStore>((set) => ({
 
   selectWorkspace: async (id) => {
     if (!api) return
-    set({ activeWorkspaceId: id })
+    set({
+      activeWorkspaceId: id,
+      activeView: 'terminal',
+      reviewWorkspaceId: null,
+      selectedReviewFilePath: null,
+      reviewFocusMode: false,
+    })
     await api.workspace.select(id)
   },
 
@@ -95,13 +127,14 @@ export const useStore = create<MuxStore>((set) => ({
     return next
   },
 
-  theme: (typeof localStorage !== 'undefined' && (localStorage.getItem('mux-theme') as 'dark' | 'light')) || 'dark',
+  theme:
+    (typeof localStorage !== 'undefined' && (localStorage.getItem('takoyaki-theme') as 'dark' | 'light')) || 'dark',
   toggleTheme: () =>
     set((s) => {
       const next = s.theme === 'dark' ? 'light' : 'dark'
       document.documentElement.dataset.theme = next === 'light' ? 'light' : ''
-      localStorage.setItem('mux-theme', next)
-      window.dispatchEvent(new CustomEvent('mux-theme-changed', { detail: next }))
+      localStorage.setItem('takoyaki-theme', next)
+      window.dispatchEvent(new CustomEvent('takoyaki-theme-changed', { detail: next }))
       return { theme: next }
     }),
 
@@ -121,4 +154,150 @@ export const useStore = create<MuxStore>((set) => ({
     }
     set({ toast: null })
   },
+
+  activeView: 'terminal',
+  reviewWorkspaceId: null,
+  selectedReviewFilePath: null,
+  reviewSnapshots: {},
+  reviewPatches: {},
+  reviewFocusMode: false,
+  reviewLoading: false,
+  reviewPatchLoading: false,
+  reviewError: null,
+
+  openReview: async (workspaceId) => {
+    if (!api?.review || !api.workspace) return
+
+    set({
+      activeWorkspaceId: workspaceId,
+      activeView: 'review',
+      reviewWorkspaceId: workspaceId,
+      reviewLoading: true,
+      reviewPatchLoading: false,
+      reviewFocusMode: false,
+      reviewError: null,
+    })
+    await api.workspace.select(workspaceId)
+
+    try {
+      const snapshot = await api.review.getSnapshot(workspaceId)
+      if (get().reviewWorkspaceId !== workspaceId) return
+
+      const currentSelection = get().selectedReviewFilePath
+      const nextSelection =
+        currentSelection && snapshot.files.some((file) => file.path === currentSelection)
+          ? currentSelection
+          : snapshot.files[0]?.path || null
+
+      set((state) => ({
+        reviewSnapshots: { ...state.reviewSnapshots, [workspaceId]: snapshot },
+        reviewPatches: { ...state.reviewPatches, [workspaceId]: {} },
+        selectedReviewFilePath: nextSelection,
+        reviewLoading: false,
+        reviewPatchLoading: false,
+        reviewError: snapshot.isReviewable ? null : snapshot.detail,
+      }))
+
+      if (snapshot.isReviewable && nextSelection) {
+        await get().selectReviewFile(nextSelection)
+      }
+    } catch (error) {
+      if (get().reviewWorkspaceId !== workspaceId) return
+      set({
+        reviewLoading: false,
+        reviewPatchLoading: false,
+        reviewError: getReviewErrorDetail(error),
+      })
+    }
+  },
+
+  closeReview: () =>
+    set({
+      activeView: 'terminal',
+      reviewWorkspaceId: null,
+      selectedReviewFilePath: null,
+      reviewFocusMode: false,
+      reviewLoading: false,
+      reviewPatchLoading: false,
+      reviewError: null,
+    }),
+
+  refreshReview: async () => {
+    const workspaceId = get().reviewWorkspaceId
+    if (!workspaceId || !api?.review) return
+
+    set((state) => ({
+      reviewLoading: true,
+      reviewPatchLoading: false,
+      reviewError: null,
+      reviewPatches: { ...state.reviewPatches, [workspaceId]: {} },
+    }))
+
+    try {
+      const snapshot = await api.review.getSnapshot(workspaceId)
+      if (get().reviewWorkspaceId !== workspaceId) return
+
+      const currentSelection = get().selectedReviewFilePath
+      const nextSelection =
+        currentSelection && snapshot.files.some((file) => file.path === currentSelection)
+          ? currentSelection
+          : snapshot.files[0]?.path || null
+
+      set((state) => ({
+        reviewSnapshots: { ...state.reviewSnapshots, [workspaceId]: snapshot },
+        selectedReviewFilePath: nextSelection,
+        reviewLoading: false,
+        reviewPatchLoading: false,
+        reviewError: snapshot.isReviewable ? null : snapshot.detail,
+      }))
+
+      if (snapshot.isReviewable && nextSelection) {
+        await get().selectReviewFile(nextSelection)
+      }
+    } catch (error) {
+      if (get().reviewWorkspaceId !== workspaceId) return
+      set({
+        reviewLoading: false,
+        reviewPatchLoading: false,
+        reviewError: getReviewErrorDetail(error),
+      })
+    }
+  },
+
+  selectReviewFile: async (filePath) => {
+    const workspaceId = get().reviewWorkspaceId
+    if (!workspaceId || !api?.review) return
+
+    set({ selectedReviewFilePath: filePath, reviewPatchLoading: true, reviewError: null })
+
+    const cachedPatch = get().reviewPatches[workspaceId]?.[filePath]
+    if (cachedPatch) {
+      set({ reviewPatchLoading: false })
+      return
+    }
+
+    try {
+      const patch = await api.review.getFilePatch(workspaceId, filePath)
+      if (get().reviewWorkspaceId !== workspaceId) return
+
+      set((state) => ({
+        reviewPatches: {
+          ...state.reviewPatches,
+          [workspaceId]: {
+            ...(state.reviewPatches[workspaceId] || {}),
+            [filePath]: patch,
+          },
+        },
+        reviewPatchLoading: false,
+      }))
+    } catch (error) {
+      if (get().reviewWorkspaceId !== workspaceId) return
+      set({
+        reviewPatchLoading: false,
+        reviewError: getReviewErrorDetail(error),
+      })
+    }
+  },
+
+  toggleReviewFocusMode: () => set((state) => ({ reviewFocusMode: !state.reviewFocusMode })),
 }))

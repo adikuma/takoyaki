@@ -16,7 +16,7 @@ interface EditorPreferences {
   defaultEditor: EditorKind
 }
 
-const PREFERENCES_FILE = path.join(os.homedir(), '.mux', 'preferences.json')
+const PREFERENCES_FILE = path.join(os.homedir(), '.takoyaki', 'preferences.json')
 const DEFAULT_EDITOR: EditorKind = 'cursor'
 const SUCCESS_TIMEOUT_MS = 1_500
 const ALL_EDITORS: EditorKind[] = ['cursor', 'vscode', 'zed', 'explorer']

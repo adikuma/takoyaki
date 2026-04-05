@@ -1,6 +1,6 @@
-# mux
+# Takoyaki
 
-I saw tmux (only through WSL), CMUX, and other cool ways to manage and multitask in coding environments. I wanted the same for Windows.
+I saw tmux (only through WSL) and other cool ways to manage and multitask in coding environments. I wanted the same for Windows.
 
 
 ## Features
@@ -16,7 +16,9 @@ I saw tmux (only through WSL), CMUX, and other cool ways to manage and multitask
 
 ## Install
 
-Download the latest release from the [releases page](https://github.com/adikuma/mux/releases).
+Download the latest release from the [releases page](https://github.com/adikuma/takoyaki/releases).
+
+See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release notes.
 
 > macOS and Linux builds coming soon. Currently Windows only.
 

@@ -57,7 +57,7 @@ export class RpcHandler {
 
     switch (req.method) {
       case 'system.capabilities':
-        return ok(req.id, { name: 'mux', version: '0.1.0', capabilities: ['workspace', 'surface'] })
+        return ok(req.id, { name: 'takoyaki', version: '0.2.0', capabilities: ['workspace', 'surface'] })
 
       case 'workspace.list':
         return ok(

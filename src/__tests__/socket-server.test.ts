@@ -54,7 +54,7 @@ describe('SocketServer', () => {
     const response = await sendLine(port, req)
     const parsed = JSON.parse(response)
     expect(parsed.ok).toBe(true)
-    expect(parsed.result.name).toBe('mux')
+    expect(parsed.result.name).toBe('takoyaki')
   })
 
   it('handles multiple sequential requests on same connection', async () => {

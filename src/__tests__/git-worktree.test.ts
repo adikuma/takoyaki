@@ -16,7 +16,7 @@ function mockGit(cwd: string, args: string[], stdout: string, error?: string): v
 }
 
 vi.mock('os', async () => {
-  const actual = await vi.importActual<any>('os')
+  const actual = await vi.importActual<typeof import('os')>('os')
   return { ...actual, homedir: () => gitState.home }
 })
 
@@ -81,7 +81,7 @@ describe('GitWorktreeService', () => {
     expect(result.branchName).toBe('task/auth-refactor')
     expect(result.baseBranch).toBe('main')
     expect(result.worktreePath).toBe(managedPath)
-    const metadataPath = path.join(repoRoot, '.git', 'mux-tasks.json')
+    const metadataPath = path.join(repoRoot, '.git', 'takoyaki-tasks.json')
     const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf-8'))
     expect(metadata.tasks).toHaveLength(1)
     expect(metadata.tasks[0].taskTitle).toBe('Auth Refactor')
@@ -118,7 +118,7 @@ describe('GitWorktreeService', () => {
     const worktreePath = path.join(repoParent, 'repo-task-a')
     fs.mkdirSync(metadataDir, { recursive: true })
     fs.writeFileSync(
-      path.join(metadataDir, 'mux-tasks.json'),
+      path.join(metadataDir, 'takoyaki-tasks.json'),
       JSON.stringify({
         tasks: [
           {
@@ -141,7 +141,7 @@ describe('GitWorktreeService', () => {
       blocked: false,
       detail: 'Task worktree removed. Branch was kept.',
     })
-    expect(fs.existsSync(path.join(metadataDir, 'mux-tasks.json'))).toBe(false)
+    expect(fs.existsSync(path.join(metadataDir, 'takoyaki-tasks.json'))).toBe(false)
   })
 
   it('lists only metadata-backed worktrees and restores titles from metadata', async () => {
@@ -150,7 +150,7 @@ describe('GitWorktreeService', () => {
     fs.mkdirSync(managedPath, { recursive: true })
     fs.mkdirSync(metadataDir, { recursive: true })
     fs.writeFileSync(
-      path.join(metadataDir, 'mux-tasks.json'),
+      path.join(metadataDir, 'takoyaki-tasks.json'),
       JSON.stringify({
         tasks: [
           {
@@ -203,7 +203,7 @@ describe('GitWorktreeService', () => {
     fs.mkdirSync(livePath, { recursive: true })
     fs.mkdirSync(metadataDir, { recursive: true })
     fs.writeFileSync(
-      path.join(metadataDir, 'mux-tasks.json'),
+      path.join(metadataDir, 'takoyaki-tasks.json'),
       JSON.stringify({
         tasks: [
           {
@@ -243,7 +243,7 @@ describe('GitWorktreeService', () => {
     const recovered = await service.listManagedWorktrees(repoRoot)
 
     expect(recovered).toHaveLength(1)
-    const metadata = JSON.parse(fs.readFileSync(path.join(metadataDir, 'mux-tasks.json'), 'utf-8'))
+    const metadata = JSON.parse(fs.readFileSync(path.join(metadataDir, 'takoyaki-tasks.json'), 'utf-8'))
     expect(metadata.tasks).toHaveLength(1)
     expect(metadata.tasks[0].taskTitle).toBe('Live Task')
   })

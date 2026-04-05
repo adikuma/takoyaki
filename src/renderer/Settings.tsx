@@ -53,19 +53,19 @@ export function Settings({ open, onClose }: Props) {
 
   // fetches hook health info from main process
   const loadDiagnostics = async () => {
-    if (!window.mux?.hooks) return
-    const next = await window.mux.hooks.diagnostics()
+    if (!window.takoyaki?.hooks) return
+    const next = await window.takoyaki.hooks.diagnostics()
     setDiagnostics(next)
   }
 
   useEffect(() => {
-    if (open && window.mux?.hooks) {
+    if (open && window.takoyaki?.hooks) {
       loadDiagnostics()
     }
   }, [open])
 
   useEffect(() => {
-    if (!open || !window.mux?.editor) return
+    if (!open || !window.takoyaki?.editor) return
     void loadEditorState()
   }, [loadEditorState, open])
 
@@ -92,10 +92,10 @@ export function Settings({ open, onClose }: Props) {
 
   // writes hook scripts and registers them in claude settings
   const handleInstall = async () => {
-    if (!window.mux?.hooks) return
+    if (!window.takoyaki?.hooks) return
     setInstalling(true)
     setInstallResult(null)
-    const ok = await window.mux.hooks.install()
+    const ok = await window.takoyaki.hooks.install()
     await loadDiagnostics()
     setInstalling(false)
     setInstallResult(ok ? 'installed' : 'failed')
@@ -104,10 +104,10 @@ export function Settings({ open, onClose }: Props) {
 
   // runs the hook script and checks if the status update arrives back via socket
   const handleTest = async () => {
-    if (!window.mux?.hooks) return
+    if (!window.takoyaki?.hooks) return
     setTesting(true)
     setTestResult(null)
-    const result = await window.mux.hooks.test()
+    const result = await window.takoyaki.hooks.test()
     await loadDiagnostics()
     setTesting(false)
     setTestResult(result.ok ? 'passed' : 'failed')
@@ -137,7 +137,7 @@ export function Settings({ open, onClose }: Props) {
 
   return (
     <div className="absolute inset-0 z-50 flex">
-      <div className="absolute inset-0" style={{ background: 'var(--mux-backdrop)' }} onClick={onClose} />
+      <div className="absolute inset-0" style={{ background: 'var(--takoyaki-backdrop)' }} onClick={onClose} />
 
       <div
         className="relative ml-auto h-full flex flex-col"
@@ -330,7 +330,7 @@ export function Settings({ open, onClose }: Props) {
               <button
                 onClick={handleInstall}
                 disabled={installing}
-                className="mux-btn px-3 py-1.5 rounded-md text-[11px] disabled:opacity-50 cursor-pointer"
+                className="takoyaki-btn px-3 py-1.5 rounded-md text-[11px] disabled:opacity-50 cursor-pointer"
                 style={{
                   ...button.base,
                   color:
@@ -372,7 +372,7 @@ export function Settings({ open, onClose }: Props) {
               <button
                 onClick={handleTest}
                 disabled={testing || !diagnostics?.installedHooks.Stop || !diagnostics?.installedHooks.UserPromptSubmit}
-                className="mux-btn px-3 py-1.5 rounded-md text-[11px] disabled:opacity-50 cursor-pointer"
+                className="takoyaki-btn px-3 py-1.5 rounded-md text-[11px] disabled:opacity-50 cursor-pointer"
                 style={{
                   ...button.base,
                   color:

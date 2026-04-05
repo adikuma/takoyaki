@@ -13,7 +13,7 @@ const childState = vi.hoisted(() => ({
 }))
 
 vi.mock('os', async () => {
-  const actual = await vi.importActual<any>('os')
+  const actual = await vi.importActual<typeof import('os')>('os')
   return { ...actual, homedir: () => childState.home }
 })
 

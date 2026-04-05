@@ -1,46 +1,46 @@
-// my mux design system
+// my takoyaki design system
 
 export const colors = {
   // surfaces
-  bg: 'var(--mux-bg)',
-  bgHover: 'var(--mux-bg-hover)',
-  bgActive: 'var(--mux-bg-active)',
-  bgInput: 'var(--mux-bg-input)',
-  bgSubtle: 'var(--mux-bg-subtle)',
-  bgCard: 'var(--mux-bg-card)',
+  bg: 'var(--takoyaki-bg)',
+  bgHover: 'var(--takoyaki-bg-hover)',
+  bgActive: 'var(--takoyaki-bg-active)',
+  bgInput: 'var(--takoyaki-bg-input)',
+  bgSubtle: 'var(--takoyaki-bg-subtle)',
+  bgCard: 'var(--takoyaki-bg-card)',
 
   // borders
-  separator: 'var(--mux-separator)',
-  borderSubtle: 'var(--mux-border-subtle)',
+  separator: 'var(--takoyaki-separator)',
+  borderSubtle: 'var(--takoyaki-border-subtle)',
 
   // text hierarchy
-  textPrimary: 'var(--mux-text-primary)',
-  textSecondary: 'var(--mux-text-secondary)',
-  textMuted: 'var(--mux-text-muted)',
-  textGhost: 'var(--mux-text-ghost)',
+  textPrimary: 'var(--takoyaki-text-primary)',
+  textSecondary: 'var(--takoyaki-text-secondary)',
+  textMuted: 'var(--takoyaki-text-muted)',
+  textGhost: 'var(--takoyaki-text-ghost)',
 
   // accent
-  accent: 'var(--mux-accent)',
-  accentSoft: 'var(--mux-accent-soft)',
+  accent: 'var(--takoyaki-accent)',
+  accentSoft: 'var(--takoyaki-accent-soft)',
   accentMuted: 'rgba(245, 158, 11, 0.4)',
 
   // status
-  success: 'var(--mux-success)',
-  error: 'var(--mux-error)',
+  success: 'var(--takoyaki-success)',
+  error: 'var(--takoyaki-error)',
 
   // diff
-  diffAddBg: 'var(--mux-diff-add-bg)',
-  diffDelBg: 'var(--mux-diff-del-bg)',
-  diffAddText: 'var(--mux-diff-add-text)',
-  diffDelText: 'var(--mux-diff-del-text)',
-  diffHunkText: 'var(--mux-diff-hunk-text)',
+  diffAddBg: 'var(--takoyaki-diff-add-bg)',
+  diffDelBg: 'var(--takoyaki-diff-del-bg)',
+  diffAddText: 'var(--takoyaki-diff-add-text)',
+  diffDelText: 'var(--takoyaki-diff-del-text)',
+  diffHunkText: 'var(--takoyaki-diff-hunk-text)',
 
   // terminal container
-  terminalBg: 'var(--mux-terminal-bg)',
+  terminalBg: 'var(--takoyaki-terminal-bg)',
 
   // tooltip
-  tooltipBg: 'var(--mux-tooltip-bg)',
-  tooltipText: 'var(--mux-tooltip-text)',
+  tooltipBg: 'var(--takoyaki-tooltip-bg)',
+  tooltipText: 'var(--takoyaki-tooltip-text)',
 } as const
 
 export const fonts = {
@@ -142,17 +142,17 @@ export const terminalTheme = getTerminalTheme('dark')
 // button style tokens
 export const button = {
   base: {
-    background: 'var(--mux-btn-bg)',
-    boxShadow: '0 0 0 1px var(--mux-btn-ring), inset 0 1px 0 var(--mux-btn-highlight)',
+    background: 'var(--takoyaki-btn-bg)',
+    boxShadow: '0 0 0 1px var(--takoyaki-btn-ring), inset 0 1px 0 var(--takoyaki-btn-highlight)',
     border: 'none',
   },
   hover: {
-    background: 'var(--mux-btn-bg)',
-    boxShadow: '0 0 0 1px var(--mux-btn-ring-hover), inset 0 1px 0 var(--mux-btn-highlight)',
+    background: 'var(--takoyaki-btn-bg)',
+    boxShadow: '0 0 0 1px var(--takoyaki-btn-ring-hover), inset 0 1px 0 var(--takoyaki-btn-highlight)',
   },
   active: {
-    background: 'var(--mux-btn-bg)',
-    boxShadow: '0 0 0 1px var(--mux-btn-ring), inset 0 1px 2px var(--mux-btn-highlight)',
+    background: 'var(--takoyaki-btn-bg)',
+    boxShadow: '0 0 0 1px var(--takoyaki-btn-ring), inset 0 1px 2px var(--takoyaki-btn-highlight)',
   },
 } as const
 

@@ -1,38 +1,36 @@
 // claude code hook integration
-// writes a tiny node script to ~/.mux/bin/mux-notify.js
-// adds mux-owned hooks to claude code user settings
+// writes a tiny node script to ~/.takoyaki/bin/takoyaki-notify.js
+// adds takoyaki-owned hooks to claude code user settings
 
 import { spawn, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
-const MUX_DIR = path.join(os.homedir(), '.mux')
-const LEGACY_DIR = path.join(os.homedir(), '.cmux')
-const HOOKS_STATE_FILE = path.join(MUX_DIR, 'hooks-setup.json')
+const TAKOYAKI_DIR = path.join(os.homedir(), '.takoyaki')
+const HOOKS_STATE_FILE = path.join(TAKOYAKI_DIR, 'hooks-setup.json')
 const CLAUDE_SETTINGS = path.join(os.homedir(), '.claude', 'settings.json')
-const NOTIFY_SCRIPT = path.join(MUX_DIR, 'bin', 'mux-notify.js')
-const LEGACY_NOTIFY_SCRIPT = path.join(LEGACY_DIR, 'bin', 'cmux-notify.js')
-const SOCKET_ADDR_FILE = path.join(MUX_DIR, 'socket_addr')
+const NOTIFY_SCRIPT = path.join(TAKOYAKI_DIR, 'bin', 'takoyaki-notify.js')
+const SOCKET_ADDR_FILE = path.join(TAKOYAKI_DIR, 'socket_addr')
 const REQUIRED_HOOK_EVENTS = ['Stop', 'StopFailure', 'UserPromptSubmit'] as const
 type RequiredHookEvent = (typeof REQUIRED_HOOK_EVENTS)[number]
-type HookCommandState = 'current' | 'legacy' | 'missing' | 'invalid'
+type HookCommandState = 'current' | 'missing' | 'invalid'
 type JsonObject = Record<string, unknown>
 
-interface ClaudeHookCommand {
+export interface ClaudeHookCommand {
   type?: string
   command?: string
   timeout?: number
   [key: string]: unknown
 }
 
-interface ClaudeHookMatcher {
+export interface ClaudeHookMatcher {
   matcher?: string
   hooks?: ClaudeHookCommand[]
   [key: string]: unknown
 }
 
-interface ClaudeSettings {
+export interface ClaudeSettings {
   hooks?: Partial<Record<RequiredHookEvent, ClaudeHookMatcher[]>> & Record<string, unknown>
   enabledPlugins?: Record<string, unknown>
   [key: string]: unknown
@@ -79,7 +77,7 @@ const EVENT_TO_STATUS = {
   StopFailure: 'failed'
 }
 
-const isTest = process.env.MUX_HOOK_TEST === '1'
+const isTest = process.env.TAKOYAKI_HOOK_TEST === '1'
 let settled = false
 
 function finish(message) {
@@ -135,29 +133,26 @@ function readStdinJson() {
 }
 
 async function main() {
-  setTimeout(() => fail('timed out waiting for mux hook delivery'), isTest ? 4000 : 3000)
+  setTimeout(() => fail('timed out waiting for takoyaki hook delivery'), isTest ? 4000 : 3000)
 
   const payload = await readStdinJson()
-  const legacyStatus = process.argv[2] && !process.argv[2].startsWith('--') ? process.argv[2] : ''
   const eventName = readArg('--event') ||
     firstString(payload, ['hookEventName', 'hook_event_name', 'eventName', 'event_name'])
   const surfaceId = readArg('--surface-id') ||
-    process.env.MUX_SURFACE_ID ||
+    process.env.TAKOYAKI_SURFACE_ID ||
     firstString(payload, ['surfaceId', 'surface_id'])
   const status = EVENT_TO_STATUS[eventName] ||
-    legacyStatus ||
     firstString(payload, ['status']) ||
     'finished'
-  const normalizedEventName = eventName ||
-    (legacyStatus === 'running' ? 'UserPromptSubmit' : legacyStatus === 'failed' ? 'StopFailure' : legacyStatus === 'finished' ? 'Stop' : '')
+  const normalizedEventName = eventName || ''
 
   try {
-    const addrFile = path.join(os.homedir(), '.mux', 'socket_addr')
-    if (!fs.existsSync(addrFile)) fail('mux socket_addr not found')
+    const addrFile = path.join(os.homedir(), '.takoyaki', 'socket_addr')
+    if (!fs.existsSync(addrFile)) fail('takoyaki socket_addr not found')
 
     const addr = fs.readFileSync(addrFile, 'utf-8').trim()
     const [host, port] = addr.split(':')
-    if (!host || !port) fail('mux socket address is invalid')
+    if (!host || !port) fail('takoyaki socket address is invalid')
 
     const params = { status }
     if (surfaceId) params.surface_id = surfaceId
@@ -184,7 +179,7 @@ export function initializeHooks(): void {
 }
 
 function ensureNotifyScript(): void {
-  const binDir = path.join(MUX_DIR, 'bin')
+  const binDir = path.join(TAKOYAKI_DIR, 'bin')
   if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true })
   fs.writeFileSync(NOTIFY_SCRIPT, NOTIFY_SCRIPT_CONTENT, 'utf-8')
 }
@@ -222,7 +217,7 @@ export function isHooksConfigured(): boolean {
 function removeManagedHookEntries(hookArray: ClaudeHookMatcher[]): ClaudeHookMatcher[] {
   return hookArray.filter((entry) => {
     const serialized = JSON.stringify(entry)
-    return !serialized.includes('cmux-notify') && !serialized.includes('mux-notify')
+    return !serialized.includes('takoyaki-notify')
   })
 }
 
@@ -320,10 +315,9 @@ export function getHookDiagnostics(): HookDiagnostics {
     const hookStates = getHookCommandStates(settings)
     const installedHooks = getInstalledHooks(hookStates)
     const missingHooks = REQUIRED_HOOK_EVENTS.filter((eventName) => hookStates[eventName] === 'missing')
-    const legacyHooks = REQUIRED_HOOK_EVENTS.filter((eventName) => hookStates[eventName] === 'legacy')
     const invalidHooks = REQUIRED_HOOK_EVENTS.filter((eventName) => hookStates[eventName] === 'invalid')
     const externalNote = settings?.enabledPlugins?.['superpowers@claude-plugins-official']
-      ? 'SessionStart hook errors are likely coming from a Claude plugin, not mux.'
+      ? 'SessionStart hook errors are likely coming from a Claude plugin, not Takoyaki.'
       : undefined
 
     if (invalidHooks.length > 0) {
@@ -333,18 +327,7 @@ export function getHookDiagnostics(): HookDiagnostics {
         hookStates,
         externalNote,
         health: 'degraded',
-        detail: `Malformed mux hook commands detected for ${invalidHooks.join(', ')}`,
-      }
-    }
-
-    if (legacyHooks.length > 0) {
-      return {
-        ...base,
-        installedHooks,
-        hookStates,
-        externalNote,
-        health: 'degraded',
-        detail: `Legacy .cmux hook install detected for ${legacyHooks.join(', ')}. Click Install / Repair.`,
+        detail: `Malformed Takoyaki hook commands detected for ${invalidHooks.join(', ')}`,
       }
     }
 
@@ -355,7 +338,7 @@ export function getHookDiagnostics(): HookDiagnostics {
         hookStates,
         externalNote,
         health: 'missing',
-        detail: `Missing mux hooks for ${missingHooks.join(', ')}`,
+        detail: `Missing Takoyaki hooks for ${missingHooks.join(', ')}`,
       }
     }
 
@@ -366,7 +349,7 @@ export function getHookDiagnostics(): HookDiagnostics {
         hookStates,
         externalNote,
         health: 'degraded',
-        detail: 'mux notify script is missing',
+        detail: 'Takoyaki notify script is missing',
       }
     }
 
@@ -377,7 +360,7 @@ export function getHookDiagnostics(): HookDiagnostics {
         hookStates,
         externalNote,
         health: 'degraded',
-        detail: 'mux is not currently exposing a socket address',
+        detail: 'Takoyaki is not currently exposing a socket address',
       }
     }
 
@@ -398,7 +381,7 @@ export function getHookDiagnostics(): HookDiagnostics {
       hookStates,
       externalNote,
       health: 'connected',
-      detail: 'Hooks are installed and the mux socket is available',
+      detail: 'Hooks are installed and the Takoyaki socket is available',
     }
   } catch {
     return {
@@ -422,7 +405,7 @@ export function testHooks(surfaceId: string, eventName: RequiredHookEvent = 'Sto
 
   return new Promise((resolve) => {
     const child = spawn(runner, [NOTIFY_SCRIPT, '--event', eventName], {
-      env: { ...process.env, MUX_SURFACE_ID: surfaceId, MUX_HOOK_TEST: '1' },
+      env: { ...process.env, TAKOYAKI_SURFACE_ID: surfaceId, TAKOYAKI_HOOK_TEST: '1' },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 
@@ -458,7 +441,7 @@ export function testHooks(surfaceId: string, eventName: RequiredHookEvent = 'Sto
 
 function saveState(state: HooksState): void {
   try {
-    if (!fs.existsSync(MUX_DIR)) fs.mkdirSync(MUX_DIR, { recursive: true })
+    if (!fs.existsSync(TAKOYAKI_DIR)) fs.mkdirSync(TAKOYAKI_DIR, { recursive: true })
     fs.writeFileSync(HOOKS_STATE_FILE, JSON.stringify(state, null, 2), 'utf-8')
   } catch {
     // state persistence failed, non-fatal
@@ -519,10 +502,8 @@ function getHookCommandState(entries: ClaudeHookMatcher[], eventName: RequiredHo
   if (commands.length === 0) return 'missing'
 
   const currentCount = commands.filter((command) => isCurrentHookCommand(command, eventName)).length
-  const legacyCount = commands.filter((command) => isLegacyHookCommand(command, eventName)).length
 
   if (currentCount === commands.length) return 'current'
-  if (legacyCount === commands.length) return 'legacy'
   return 'invalid'
 }
 
@@ -545,20 +526,12 @@ function normalizeCommand(command: string): string {
 
 function isManagedHookCommand(command: string, eventName: RequiredHookEvent): boolean {
   const normalized = normalizeCommand(command)
-  return (
-    normalized.includes(`--event ${eventName}`) &&
-    (normalized.includes('mux-notify.js') || normalized.includes('cmux-notify.js'))
-  )
+  return normalized.includes(`--event ${eventName}`) && normalized.includes('takoyaki-notify.js')
 }
 
 function isCurrentHookCommand(command: string, eventName: RequiredHookEvent): boolean {
   const normalized = normalizeCommand(command)
   return normalized.includes(normalizeCommand(NOTIFY_SCRIPT)) && normalized.includes(`--event ${eventName}`)
-}
-
-function isLegacyHookCommand(command: string, eventName: RequiredHookEvent): boolean {
-  const normalized = normalizeCommand(command)
-  return normalized.includes(normalizeCommand(LEGACY_NOTIFY_SCRIPT)) && normalized.includes(`--event ${eventName}`)
 }
 
 function readSocketAddress(): string | null {

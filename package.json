@@ -1,6 +1,6 @@
 {
-  "name": "mux",
-  "version": "0.1.1",
+  "name": "takoyaki",
+  "version": "0.2.0",
   "description": "A terminal multiplexer for coding agents",
   "main": "./out/main/index.js",
   "license": "AGPL-3.0-or-later",

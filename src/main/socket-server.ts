@@ -1,5 +1,5 @@
 // tcp socket server for cli communication
-// listens on a random port, writes address to ~/.mux/socket_addr
+// listens on a random port, writes address to ~/.takoyaki/socket_addr
 // handles both v1 text and v2 json-rpc line protocols
 
 import * as net from 'net'
@@ -47,7 +47,7 @@ export class SocketServer {
   // recreate socket_addr if missing (called by repair button and health check)
   ensureAddrFile(): void {
     if (!this.port) return
-    const file = path.join(os.homedir(), '.mux', 'socket_addr')
+    const file = path.join(os.homedir(), '.takoyaki', 'socket_addr')
     if (!fs.existsSync(file)) this.writeAddrFile()
   }
 
@@ -92,7 +92,7 @@ export class SocketServer {
 
   private writeAddrFile(): void {
     try {
-      const dir = path.join(os.homedir(), '.mux')
+      const dir = path.join(os.homedir(), '.takoyaki')
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(path.join(dir, 'socket_addr'), `127.0.0.1:${this.port}`, 'utf-8')
     } catch (error) {
@@ -102,7 +102,7 @@ export class SocketServer {
 
   private cleanAddrFile(): void {
     try {
-      const file = path.join(os.homedir(), '.mux', 'socket_addr')
+      const file = path.join(os.homedir(), '.takoyaki', 'socket_addr')
       if (fs.existsSync(file)) fs.unlinkSync(file)
     } catch {
       // non-fatal

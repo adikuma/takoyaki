@@ -12,6 +12,7 @@ import { SocketServer } from './socket-server'
 import { GitWorktreeService } from './git-worktree'
 import { EditorService, type EditorKind, type EditorLaunchTarget } from './editor'
 import { getTerminalRuntimeInfo } from './terminal-runtime'
+import { ReviewService } from './review'
 import {
   shouldShowHooksBanner,
   installHooks,
@@ -29,6 +30,7 @@ const socketServer = new SocketServer(rpc)
 const worktreeService = new GitWorktreeService()
 const editorService = new EditorService()
 const terminalRuntimeInfo = getTerminalRuntimeInfo()
+const reviewService = new ReviewService()
 
 type HookStatusState = 'running' | 'finished' | 'failed'
 interface SurfaceStatusRecord {
@@ -474,6 +476,21 @@ function setupIpc(): void {
       await editorService.setPreference(target)
     }
     return editorService.openPath(targetPath, target)
+  })
+
+  ipcMain.handle('review:get-snapshot', async (_, workspaceId: string) => {
+    const workspace = workspaces.get(workspaceId)
+    if (!workspace) {
+      throw new Error('Workspace not found.')
+    }
+    return reviewService.getSnapshot(workspace)
+  })
+  ipcMain.handle('review:get-file-patch', async (_, workspaceId: string, filePath: string) => {
+    const workspace = workspaces.get(workspaceId)
+    if (!workspace) {
+      throw new Error('Workspace not found.')
+    }
+    return reviewService.getFilePatch(workspace, filePath)
   })
 
   // window controls

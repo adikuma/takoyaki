@@ -11,7 +11,7 @@ const testState = vi.hoisted(() => {
 })
 
 vi.mock('os', async () => {
-  const actual = await vi.importActual<any>('os')
+  const actual = await vi.importActual<typeof import('os')>('os')
   return { ...actual, homedir: () => testState.home }
 })
 
@@ -20,31 +20,40 @@ vi.mock('child_process', () => ({
   spawn: vi.fn(),
 }))
 
-import { getHookDiagnostics, initializeHooks, installHooks } from '../main/hooks'
+import {
+  getHookDiagnostics,
+  initializeHooks,
+  installHooks,
+  type ClaudeHookMatcher,
+  type ClaudeSettings,
+} from '../main/hooks'
 
 const settingsPath = path.join(testState.home, '.claude', 'settings.json')
-const socketAddrPath = path.join(testState.home, '.mux', 'socket_addr')
-const currentNotifyPath = path.join(testState.home, '.mux', 'bin', 'mux-notify.js').replace(/\\/g, '/')
-const legacyNotifyPath = path.join(testState.home, '.cmux', 'bin', 'cmux-notify.js').replace(/\\/g, '/')
+const socketAddrPath = path.join(testState.home, '.takoyaki', 'socket_addr')
+const currentNotifyPath = path.join(testState.home, '.takoyaki', 'bin', 'takoyaki-notify.js').replace(/\\/g, '/')
 
-function commandEntry(command: string) {
+function commandEntry(command: string): ClaudeHookMatcher {
   return {
     matcher: '.*',
     hooks: [{ type: 'command', command, timeout: 5000 }],
   }
 }
 
-function writeSettings(settings: any): void {
+function writeSettings(settings: ClaudeSettings): void {
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true })
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8')
 }
 
-function readSettings(): any {
-  return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+function readSettings(): ClaudeSettings {
+  return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as ClaudeSettings
 }
 
-function legacyCommand(eventName: string): string {
-  return `${testState.nodePath} ${legacyNotifyPath} --event ${eventName}`
+function getHookEntries(
+  settings: ClaudeSettings,
+  eventName: 'Stop' | 'StopFailure' | 'UserPromptSubmit',
+): ClaudeHookMatcher[] {
+  const entries = settings.hooks?.[eventName]
+  return Array.isArray(entries) ? (entries as ClaudeHookMatcher[]) : []
 }
 
 describe('hooks', () => {
@@ -57,31 +66,30 @@ describe('hooks', () => {
     fs.rmSync(testState.home, { recursive: true, force: true })
   })
 
-  it('reports legacy .cmux hook installs as degraded', () => {
+  it('reports missing takoyaki hooks when settings are empty', () => {
     writeSettings({
-      hooks: {
-        Stop: [commandEntry(legacyCommand('Stop'))],
-        StopFailure: [commandEntry(legacyCommand('StopFailure'))],
-        UserPromptSubmit: [commandEntry(legacyCommand('UserPromptSubmit'))],
-      },
+      hooks: {},
     })
 
     const diagnostics = getHookDiagnostics()
 
-    expect(diagnostics.health).toBe('degraded')
-    expect(diagnostics.hookStates.Stop).toBe('legacy')
-    expect(diagnostics.hookStates.StopFailure).toBe('legacy')
-    expect(diagnostics.hookStates.UserPromptSubmit).toBe('legacy')
-    expect(diagnostics.detail).toContain('Legacy .cmux hook install detected')
+    expect(diagnostics.health).toBe('missing')
+    expect(diagnostics.hookStates.Stop).toBe('missing')
+    expect(diagnostics.hookStates.StopFailure).toBe('missing')
+    expect(diagnostics.hookStates.UserPromptSubmit).toBe('missing')
+    expect(diagnostics.detail).toContain('Missing Takoyaki hooks')
     expect(diagnostics.installedHooks.Stop).toBe(false)
   })
 
-  it('rewrites legacy installs to .mux and preserves unrelated hooks', () => {
+  it('replaces managed takoyaki hook installs and preserves unrelated hooks', () => {
     writeSettings({
       hooks: {
-        Stop: [commandEntry(legacyCommand('Stop')), commandEntry('bark notify --title Claude')],
-        StopFailure: [commandEntry(legacyCommand('StopFailure'))],
-        UserPromptSubmit: [commandEntry(legacyCommand('UserPromptSubmit'))],
+        Stop: [
+          commandEntry(`${testState.nodePath} ${currentNotifyPath} --event Stop`),
+          commandEntry('bark notify --title Claude'),
+        ],
+        StopFailure: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event StopFailure`)],
+        UserPromptSubmit: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event UserPromptSubmit`)],
       },
     })
 
@@ -89,9 +97,8 @@ describe('hooks', () => {
 
     const settings = readSettings()
     const serialized = JSON.stringify(settings)
-    expect(serialized).toContain('.mux/bin/mux-notify.js')
-    expect(serialized).not.toContain('.cmux/bin/cmux-notify.js')
-    expect(settings.hooks.Stop.some((entry: any) => JSON.stringify(entry).includes('bark notify'))).toBe(true)
+    expect(serialized).toContain('.takoyaki/bin/takoyaki-notify.js')
+    expect(getHookEntries(settings, 'Stop').some((entry) => JSON.stringify(entry).includes('bark notify'))).toBe(true)
 
     const diagnostics = getHookDiagnostics()
     expect(diagnostics.hookStates.Stop).toBe('current')
@@ -99,7 +106,7 @@ describe('hooks', () => {
     expect(diagnostics.hookStates.UserPromptSubmit).toBe('current')
   })
 
-  it('reports current .mux installs as connected when the socket is available', () => {
+  it('reports current .takoyaki installs as connected when the socket is available', () => {
     writeSettings({ hooks: {} })
     initializeHooks()
     expect(installHooks()).toBe(true)
@@ -118,7 +125,7 @@ describe('hooks', () => {
   it('marks malformed managed commands as degraded', () => {
     writeSettings({
       hooks: {
-        Stop: [commandEntry(`${testState.nodePath} /tmp/mux-notify.js --event Stop`)],
+        Stop: [commandEntry(`${testState.nodePath} /tmp/takoyaki-notify.js --event Stop`)],
         StopFailure: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event StopFailure`)],
         UserPromptSubmit: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event UserPromptSubmit`)],
       },
@@ -128,6 +135,6 @@ describe('hooks', () => {
 
     expect(diagnostics.health).toBe('degraded')
     expect(diagnostics.hookStates.Stop).toBe('invalid')
-    expect(diagnostics.detail).toContain('Malformed mux hook commands detected')
+    expect(diagnostics.detail).toContain('Malformed Takoyaki hook commands detected')
   })
 })

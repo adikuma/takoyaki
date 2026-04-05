@@ -52,8 +52,8 @@ function syncViewportAfterAttach(term: XTerm): void {
 
 function getTerminalRuntimeInfo(): Promise<TerminalRuntimeInfo> {
   if (!terminalRuntimeInfoPromise) {
-    if (window.mux?.terminal.getRuntimeInfo) {
-      terminalRuntimeInfoPromise = window.mux.terminal.getRuntimeInfo().catch(() => ({
+    if (window.takoyaki?.terminal.getRuntimeInfo) {
+      terminalRuntimeInfoPromise = window.takoyaki.terminal.getRuntimeInfo().catch(() => ({
         platform: 'unknown',
         windowsPty: null,
       }))
@@ -78,7 +78,7 @@ async function createEntry(terminalId: string): Promise<PoolEntry> {
     cursorInactiveStyle: 'none',
     scrollback: 5000,
     allowProposedApi: true,
-    theme: getTerminalTheme((localStorage.getItem('mux-theme') as 'dark' | 'light') || 'dark'),
+    theme: getTerminalTheme((localStorage.getItem('takoyaki-theme') as 'dark' | 'light') || 'dark'),
     windowsPty: runtimeInfo.windowsPty || undefined,
   })
 
@@ -92,7 +92,7 @@ async function createEntry(terminalId: string): Promise<PoolEntry> {
     if (e.type !== 'keydown') return true
     if (e.ctrlKey && e.key === 'v') {
       e.preventDefault()
-      window.mux.clipboard.readText().then((text) => {
+      window.takoyaki.clipboard.readText().then((text) => {
         if (text) term.paste(text)
       })
       return false
@@ -100,7 +100,7 @@ async function createEntry(terminalId: string): Promise<PoolEntry> {
     if (e.ctrlKey && e.key === 'c') {
       const sel = term.getSelection()
       if (sel) {
-        void window.mux.clipboard.writeText(sel)
+        void window.takoyaki.clipboard.writeText(sel)
         term.clearSelection()
         return false
       }
@@ -119,11 +119,11 @@ async function createEntry(terminalId: string): Promise<PoolEntry> {
   const entry: PoolEntry = { term, fit, search, container, dataCleanup: null, exitCleanup: null, exited: false }
 
   // persistent listeners: pty data flows to xterm even while detached
-  entry.dataCleanup = window.mux.terminal.onData((id, data) => {
+  entry.dataCleanup = window.takoyaki.terminal.onData((id, data) => {
     if (id === terminalId) term.write(data)
   })
 
-  entry.exitCleanup = window.mux.terminal.onExit((id, code) => {
+  entry.exitCleanup = window.takoyaki.terminal.onExit((id, code) => {
     if (id === terminalId) {
       term.write(`\r\n[exited: ${code}]`)
       entry.exited = true
@@ -202,7 +202,7 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
   }, [isFocused])
 
   useEffect(() => {
-    if (!containerRef.current || !window.mux) return
+    if (!containerRef.current || !window.takoyaki) return
     let disposed = false
     const mountNode = containerRef.current
     let entry: PoolEntry | null = null
@@ -269,7 +269,7 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
 
                   if (activeTerm.cols !== nextDims.cols || activeTerm.rows !== nextDims.rows) {
                     activeTerm.resize(nextDims.cols, nextDims.rows)
-                    window.mux.terminal.resize(terminalId, nextDims.cols, nextDims.rows)
+                    window.takoyaki.terminal.resize(terminalId, nextDims.cols, nextDims.rows)
                   }
 
                   if (!didSyncViewportAfterAttachRef.current) {
@@ -286,9 +286,9 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
           }, 48)
         }
 
-        window.addEventListener('mux-theme-changed', onThemeChanged)
+        window.addEventListener('takoyaki-theme-changed', onThemeChanged)
         inputDispose = term.onData((data) => {
-          window.mux.terminal.write(terminalId, data)
+          window.takoyaki.terminal.write(terminalId, data)
         })
 
         let didSettledFit = false
@@ -317,7 +317,7 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
       isReadyRef.current = false
       clearPendingResize()
       requestStableResizeRef.current = null
-      window.removeEventListener('mux-theme-changed', onThemeChanged)
+      window.removeEventListener('takoyaki-theme-changed', onThemeChanged)
       observer?.disconnect()
       inputDispose?.dispose()
       parsedDispose?.dispose()
@@ -353,8 +353,8 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
 
   // ctrl+f opens search
   useEffect(() => {
-    if (!window.mux) return
-    const cleanup = window.mux.onShortcut((action: string) => {
+    if (!window.takoyaki) return
+    const cleanup = window.takoyaki.onShortcut((action: string) => {
       if (action === 'find' && isFocused) {
         setSearchOpen(true)
         setTimeout(() => searchInputRef.current?.focus(), 50)
@@ -376,13 +376,13 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
   }
 
   const handleClick = () => {
-    if (window.mux) window.mux.surface.focus(surfaceId)
+    if (window.takoyaki) window.takoyaki.surface.focus(surfaceId)
     termRef.current?.focus()
   }
 
   return (
     <div
-      className={`w-full h-full flex flex-col ${isAlternateScreen ? 'mux-pane-alt' : 'mux-pane-shell'}`}
+      className={`w-full h-full flex flex-col ${isAlternateScreen ? 'takoyaki-pane-alt' : 'takoyaki-pane-shell'}`}
       style={{ background: colors.terminalBg }}
       onClick={handleClick}
     >
@@ -405,7 +405,7 @@ export function Terminal({ surfaceId, terminalId, isFocused }: Props) {
               if (e.key === 'Escape') closeSearch()
             }}
             placeholder="find..."
-            className="flex-1 bg-transparent text-[12px] outline-none mux-input"
+            className="flex-1 bg-transparent text-[12px] outline-none takoyaki-input"
             style={{ color: colors.textPrimary }}
           />
           <button

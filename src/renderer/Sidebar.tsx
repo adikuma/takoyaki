@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
+  Diff,
   FolderClosed,
   Moon,
   Plus,
@@ -163,7 +164,7 @@ function BranchSelect({
               value={filterQuery}
               onChange={(e) => setFilterQuery(e.target.value)}
               placeholder="filter branches..."
-              className="w-full bg-transparent text-[12px] outline-none mux-input"
+              className="w-full bg-transparent text-[12px] outline-none takoyaki-input"
               style={{ color: colors.textPrimary, fontFamily: fonts.mono }}
             />
           </div>
@@ -224,6 +225,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
   const toggleTheme = useStore((s) => s.toggleTheme)
   const showToast = useStore((s) => s.showToast)
   const editorAvailability = useStore((s) => s.editorAvailability)
+  const openReview = useStore((s) => s.openReview)
 
   const [search, setSearch] = useState('')
   const [confirmClose, setConfirmClose] = useState<{ id: string; title: string } | null>(null)
@@ -269,8 +271,8 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
 
   // ctrl+shift+f focuses the project search input
   useEffect(() => {
-    if (!window.mux) return
-    const cleanup = window.mux.onShortcut((action: string) => {
+    if (!window.takoyaki) return
+    const cleanup = window.takoyaki.onShortcut((action: string) => {
       if (action !== 'find-projects') return
       if (narrow) {
         if (!drawerOpen) onRequestOpen?.()
@@ -292,7 +294,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
     setTaskCreating(false)
     setTaskBranches([])
     setTaskBranchesLoading(true)
-    void window.mux.workspace
+    void window.takoyaki.workspace
       .listBranches(taskModalProjectId)
       .then((branches) => {
         setTaskBranches(branches)
@@ -311,7 +313,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
     if (!taskModalProjectId || !taskTitle.trim()) return
     setTaskCreating(true)
     setTaskCreateError(null)
-    const result = await window.mux.workspace.createTask(taskModalProjectId, {
+    const result = await window.takoyaki.workspace.createTask(taskModalProjectId, {
       taskTitle: taskTitle.trim(),
       baseBranch: taskBaseBranch || undefined,
     })
@@ -326,7 +328,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
   // deletes a git worktree task and its branch if not blocked by uncommitted changes
   const removeTask = async (taskId: string, force: boolean) => {
     setTaskRemoveBusy(true)
-    const result = await window.mux.workspace.removeTask(taskId, force)
+    const result = await window.takoyaki.workspace.removeTask(taskId, force)
     setTaskRemoveBusy(false)
     if (result.ok) {
       setConfirmRemoveTask(null)
@@ -353,7 +355,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
     setOpeningWorkspaceId(workspaceId)
     let result
     try {
-      result = await window.mux.editor.openWorkspace(workspaceId, 'preferred')
+      result = await window.takoyaki.editor.openWorkspace(workspaceId, 'preferred')
     } finally {
       setOpeningWorkspaceId(null)
     }
@@ -410,7 +412,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="filter projects..."
-            className="flex-1 bg-transparent text-[12px] outline-none min-w-0 mux-input"
+            className="flex-1 bg-transparent text-[12px] outline-none min-w-0 takoyaki-input"
             style={{ color: colors.textPrimary }}
           />
           {search && (
@@ -477,6 +479,26 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                           aria-label="new task"
                         >
                           <GitBranchIcon size={13} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Open in review" side="top">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void openReview(ws.id)
+                            if (narrow) onRequestClose?.()
+                          }}
+                          className="transition-colors duration-[120ms] shrink-0 p-1"
+                          style={{ color: colors.textMuted }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.color = colors.textPrimary
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.color = colors.textMuted
+                          }}
+                          aria-label="open in review"
+                        >
+                          <Diff size={13} strokeWidth={1.8} />
                         </button>
                       </Tooltip>
                       <Tooltip content="Open in editor" side="top">
@@ -597,6 +619,26 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                             {task.title}
                           </span>
                           {taskStatus && <StatusGlyph status={taskStatus} />}
+                          <Tooltip content="Open in review" side="top">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void openReview(task.id)
+                                if (narrow) onRequestClose?.()
+                              }}
+                              className="transition-colors duration-[120ms] shrink-0 p-1"
+                              style={{ color: colors.textMuted }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.color = colors.textPrimary
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.color = colors.textMuted
+                              }}
+                              aria-label="open in review"
+                            >
+                              <Diff size={13} strokeWidth={1.8} />
+                            </button>
+                          </Tooltip>
                           <Tooltip content="Open in editor" side="top">
                             <button
                               onClick={(e) => {
@@ -632,7 +674,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                               }}
                               aria-label="remove task"
                             >
-                              <X size={13} strokeWidth={1.8} />
+                              <Trash2 size={13} strokeWidth={1.8} />
                             </button>
                           </Tooltip>
                         </div>
@@ -658,7 +700,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
       {confirmClose && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'var(--mux-backdrop)' }}
+          style={{ background: 'var(--takoyaki-backdrop)' }}
           onClick={() => setConfirmClose(null)}
         >
           <div
@@ -682,7 +724,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmClose(null)}
-                className="mux-btn px-4 py-1.5 text-[12px] rounded-md cursor-pointer"
+                className="takoyaki-btn px-4 py-1.5 text-[12px] rounded-md cursor-pointer"
                 style={{ ...button.base, color: colors.textSecondary }}
                 onMouseEnter={(e) => Object.assign(e.currentTarget.style, button.hover)}
                 onMouseLeave={(e) =>
@@ -715,7 +757,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
       {taskModalProjectId && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'var(--mux-backdrop)' }}
+          style={{ background: 'var(--takoyaki-backdrop)' }}
           onClick={() => setTaskModalProjectId(null)}
         >
           <div
@@ -747,7 +789,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                 value={taskTitle}
                 onChange={(e) => setTaskTitle(e.target.value)}
                 placeholder="task title"
-                className="flex-1 bg-transparent text-[12px] outline-none min-w-0 mux-input"
+                className="flex-1 bg-transparent text-[12px] outline-none min-w-0 takoyaki-input"
                 style={{ color: colors.textPrimary, fontFamily: fonts.mono }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && taskTitle.trim() && !taskCreating) {
@@ -781,7 +823,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setTaskModalProjectId(null)}
-                className="mux-btn px-3 py-1.5 rounded-md text-[11px] cursor-pointer"
+                className="takoyaki-btn px-3 py-1.5 rounded-md text-[11px] cursor-pointer"
                 style={{ ...button.base, color: colors.textSecondary }}
                 onMouseEnter={(e) => Object.assign(e.currentTarget.style, button.hover)}
                 onMouseLeave={(e) =>
@@ -795,7 +837,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                   void createTask()
                 }}
                 disabled={!taskTitle.trim() || taskCreating}
-                className="mux-btn px-3 py-1.5 rounded-md text-[11px] cursor-pointer disabled:opacity-50"
+                className="takoyaki-btn px-3 py-1.5 rounded-md text-[11px] cursor-pointer disabled:opacity-50"
                 style={{ ...button.base, color: colors.textPrimary }}
                 onMouseEnter={(e) => {
                   if (!taskCreating) Object.assign(e.currentTarget.style, button.hover)
@@ -814,7 +856,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
       {confirmRemoveTask && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
-          style={{ background: 'var(--mux-backdrop)' }}
+          style={{ background: 'var(--takoyaki-backdrop)' }}
           onClick={() => setConfirmRemoveTask(null)}
         >
           <div
@@ -839,7 +881,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmRemoveTask(null)}
-                className="mux-btn px-3 py-1.5 rounded-md text-[11px] cursor-pointer"
+                className="takoyaki-btn px-3 py-1.5 rounded-md text-[11px] cursor-pointer"
                 style={{ ...button.base, color: colors.textSecondary }}
                 onMouseEnter={(e) => Object.assign(e.currentTarget.style, button.hover)}
                 onMouseLeave={(e) =>
@@ -872,7 +914,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
       <div className="px-3 py-3 flex items-center gap-1" style={{ borderTop: `1px solid ${colors.separator}` }}>
         <button
           onClick={() => {
-            window.muxOpenSettings?.()
+            window.takoyakiOpenSettings?.()
             if (narrow) onRequestClose?.()
           }}
           className="flex-1 flex items-center gap-2 transition-colors duration-[120ms] cursor-pointer px-2 py-2 rounded-lg"
@@ -916,7 +958,11 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
 
   return (
     <>
-      <div className="absolute inset-0 z-40" style={{ background: 'var(--mux-backdrop)' }} onClick={onRequestClose} />
+      <div
+        className="absolute inset-0 z-40"
+        style={{ background: 'var(--takoyaki-backdrop)' }}
+        onClick={onRequestClose}
+      />
       <div className="absolute inset-y-0 left-0 z-50">{sidebarContent}</div>
     </>
   )

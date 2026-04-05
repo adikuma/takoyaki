@@ -1,9 +1,9 @@
-// titlebar: mux / project-name, window controls on right
+// titlebar: takoyaki / project-name, window controls on right
 
 import { Menu } from 'lucide-react'
 import { useStore } from './store'
 import { colors, sizes } from './design'
-import muxLogo from '../assets/mux-logo.svg?raw'
+import takoyakiLogo from '../assets/takoyaki-logo.svg?raw'
 
 interface Props {
   narrow?: boolean
@@ -52,10 +52,10 @@ export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
         <span
           className="inline-flex h-[18px] w-[18px] items-center justify-center"
           style={{ filter: theme === 'dark' ? 'invert(1)' : 'none' }}
-          dangerouslySetInnerHTML={{ __html: muxLogo }}
+          dangerouslySetInnerHTML={{ __html: takoyakiLogo }}
         />
         <span className="text-[12px] font-semibold" style={{ letterSpacing: '0.03em', color: colors.textSecondary }}>
-          mux
+          Takoyaki
         </span>
         {renderProjectTitle && (
           <>
@@ -79,7 +79,7 @@ export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
 
       <div className="flex h-full no-drag">
         <button
-          onClick={() => window.mux?.window.minimize()}
+          onClick={() => window.takoyaki?.window.minimize()}
           className="w-[46px] h-full flex items-center justify-center transition-colors duration-[120ms]"
           style={{ color: colors.textGhost }}
           onMouseEnter={(e) => {
@@ -95,7 +95,7 @@ export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
           </svg>
         </button>
         <button
-          onClick={() => window.mux?.window.maximize()}
+          onClick={() => window.takoyaki?.window.maximize()}
           className="w-[46px] h-full flex items-center justify-center transition-colors duration-[120ms]"
           style={{ color: colors.textGhost }}
           onMouseEnter={(e) => {
@@ -111,7 +111,7 @@ export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
           </svg>
         </button>
         <button
-          onClick={() => window.mux?.window.close()}
+          onClick={() => window.takoyaki?.window.close()}
           className="w-[46px] h-full flex items-center justify-center transition-colors duration-[120ms]"
           style={{ color: colors.textGhost }}
           onMouseEnter={(e) => {

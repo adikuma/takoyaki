@@ -1,6 +1,6 @@
 // manages workspaces and pane layout
 // ptys are created here and live in terminal manager
-// layout is saved to ~/.mux/state.json
+// layout is saved to ~/.takoyaki/state.json
 
 import { execFile } from 'child_process'
 import { randomUUID } from 'crypto'
@@ -76,8 +76,8 @@ type FocusDirection = 'left' | 'right' | 'up' | 'down'
 type PathStep = 'first' | 'second'
 type WorkspaceCycleDirection = 'next' | 'prev'
 
-const STATE_FILE = path.join(os.homedir(), '.mux', 'state.json')
-const LEGACY_TASK_ROOT = path.join(os.homedir(), '.mux', 'worktrees')
+const STATE_FILE = path.join(os.homedir(), '.takoyaki', 'state.json')
+const LEGACY_TASK_ROOT = path.join(os.homedir(), '.takoyaki', 'worktrees')
 
 function normalizePath(input: string): string {
   return input.replace(/\\/g, '/')

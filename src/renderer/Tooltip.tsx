@@ -55,7 +55,7 @@ export function Tooltip({ content, children, side = 'top', delay = 400 }: Props)
       {children}
       {visible && (
         <div
-          className="fixed z-[70] pointer-events-none mux-tooltip"
+          className="fixed z-[70] pointer-events-none takoyaki-tooltip"
           style={{
             left: coords.x,
             top: coords.y,

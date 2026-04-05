@@ -3,6 +3,9 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
+type PtyDataCallback = (data: string) => void
+type PtyExitCallback = (event: { exitCode: number; signal?: number }) => void
+
 // mock node-pty
 vi.mock('node-pty', () => {
   const EventEmitter = require('events')
@@ -11,11 +14,11 @@ vi.mock('node-pty', () => {
       const emitter = new EventEmitter()
       return {
         pid: 12345,
-        onData: (cb: any) => {
+        onData: (cb: PtyDataCallback) => {
           emitter.on('data', cb)
           return { dispose: () => {} }
         },
-        onExit: (cb: any) => {
+        onExit: (cb: PtyExitCallback) => {
           emitter.on('exit', cb)
           return { dispose: () => {} }
         },
@@ -157,7 +160,7 @@ describe('WorkspaceManager', () => {
 
   describe('select', () => {
     it('switches active workspace', () => {
-      const ws1 = wm.create('one')
+      wm.create('one')
       const ws2 = wm.create('two')
       wm.select(ws2.id)
       expect(wm.activeWorkspaceId).toBe(ws2.id)
@@ -369,7 +372,7 @@ describe('WorkspaceManager', () => {
     it('persists and restores task metadata', () => {
       // load() skips tasks where the working directory doesnt exist on disk
       // use a real temp directory so the existence check passes
-      const taskDir = path.join(os.tmpdir(), 'mux-test-task-' + Date.now())
+      const taskDir = path.join(os.tmpdir(), 'takoyaki-test-task-' + Date.now())
       fs.mkdirSync(taskDir, { recursive: true })
 
       try {

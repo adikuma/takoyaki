@@ -39,7 +39,7 @@ export interface HookSurfaceStatus {
   eventName: string
   receivedAt: number
 }
-// same thing but with surfaceId attached so mux knows WHICH pane it is at
+// same thing but with surfaceId attached so Takoyaki knows WHICH pane it is at
 export interface HookRuntimeEvent extends HookSurfaceStatus {
   surfaceId: string
 }
@@ -60,9 +60,9 @@ export interface HookDiagnostics {
   notifyScriptExists: boolean
   // hook registration
   hookStates: {
-    Stop: 'current' | 'legacy' | 'missing' | 'invalid'
-    StopFailure: 'current' | 'legacy' | 'missing' | 'invalid'
-    UserPromptSubmit: 'current' | 'legacy' | 'missing' | 'invalid'
+    Stop: 'current' | 'missing' | 'invalid'
+    StopFailure: 'current' | 'missing' | 'invalid'
+    UserPromptSubmit: 'current' | 'missing' | 'invalid'
   }
   installedHooks: {
     Stop: boolean
@@ -127,13 +127,45 @@ export interface TerminalRuntimeInfo {
   windowsPty: WindowsPtyInfo | null
 }
 
+export type ReviewView = 'terminal' | 'review'
+export type ReviewFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'typechange' | 'untracked'
+export type ReviewRenderMode = 'text' | 'binary' | 'oversized'
+
+export interface ReviewFile {
+  path: string
+  previousPath: string | null
+  status: ReviewFileStatus
+  stagedStatus: string
+  unstagedStatus: string
+}
+
+export interface ReviewSnapshot {
+  workspaceId: string
+  workspaceTitle: string
+  branchName: string | null
+  baseRef: 'HEAD'
+  scopePath: string | null
+  isReviewable: boolean
+  detail: string | null
+  files: ReviewFile[]
+}
+
+export interface ReviewPatch {
+  path: string
+  previousPath: string | null
+  status: ReviewFileStatus
+  renderMode: ReviewRenderMode
+  patch: string
+  detail: string | null
+}
+
 export type ShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects'
 
-// just declaring that these methods exist on windows.mux as well
+// just declaring that these methods exist on window.takoyaki as well
 declare global {
   interface Window {
-    muxOpenSettings?: () => void
-    mux: {
+    takoyakiOpenSettings?: () => void
+    takoyaki: {
       clipboard: {
         readText: () => Promise<string>
         writeText: (text: string) => Promise<void>
@@ -179,6 +211,10 @@ declare global {
         setPreference: (editor: EditorKind) => Promise<EditorKind>
         listAvailability: () => Promise<EditorAvailability[]>
         openWorkspace: (workspaceId: string, target?: EditorLaunchTarget) => Promise<EditorOpenResult>
+      }
+      review: {
+        getSnapshot: (workspaceId: string) => Promise<ReviewSnapshot>
+        getFilePatch: (workspaceId: string, filePath: string) => Promise<ReviewPatch>
       }
       activity: {
         get: () => Promise<Record<string, number>>

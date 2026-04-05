@@ -1,6 +1,6 @@
 // the bridge between electron main and renderer
 // this file runs in a context that can talk to both sides
-// it exposes window.mux to the renderer with typed ipc methods
+// it exposes window.takoyaki to the renderer with typed ipc methods
 // types are duplicated here because preload cant import from the renderer
 import { contextBridge, ipcRenderer } from 'electron'
 
@@ -50,6 +50,37 @@ interface PreloadWindowsPtyInfo {
 interface PreloadTerminalRuntimeInfo {
   platform: string
   windowsPty: PreloadWindowsPtyInfo | null
+}
+
+type PreloadReviewFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'typechange' | 'untracked'
+type PreloadReviewRenderMode = 'text' | 'binary' | 'oversized'
+
+interface PreloadReviewFile {
+  path: string
+  previousPath: string | null
+  status: PreloadReviewFileStatus
+  stagedStatus: string
+  unstagedStatus: string
+}
+
+interface PreloadReviewSnapshot {
+  workspaceId: string
+  workspaceTitle: string
+  branchName: string | null
+  baseRef: 'HEAD'
+  scopePath: string | null
+  isReviewable: boolean
+  detail: string | null
+  files: PreloadReviewFile[]
+}
+
+interface PreloadReviewPatch {
+  path: string
+  previousPath: string | null
+  status: PreloadReviewFileStatus
+  renderMode: PreloadReviewRenderMode
+  patch: string
+  detail: string | null
 }
 
 type PreloadEditorKind = 'cursor' | 'vscode' | 'zed' | 'explorer'
@@ -129,6 +160,12 @@ const api = {
     openWorkspace: (workspaceId: string, target?: PreloadEditorLaunchTarget) =>
       ipcRenderer.invoke('editor:open-workspace', workspaceId, target),
   },
+  review: {
+    getSnapshot: (workspaceId: string) =>
+      ipcRenderer.invoke('review:get-snapshot', workspaceId) as Promise<PreloadReviewSnapshot>,
+    getFilePatch: (workspaceId: string, filePath: string) =>
+      ipcRenderer.invoke('review:get-file-patch', workspaceId, filePath) as Promise<PreloadReviewPatch>,
+  },
   status: {
     onChange: (cb: (statuses: Record<string, PreloadHookSurfaceStatus>) => void) => {
       const handler = (_: Electron.IpcRendererEvent, statuses: Record<string, PreloadHookSurfaceStatus>) => cb(statuses)
@@ -175,4 +212,4 @@ const api = {
   },
 }
 
-contextBridge.exposeInMainWorld('mux', api)
+contextBridge.exposeInMainWorld('takoyaki', api)

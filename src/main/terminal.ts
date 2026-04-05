@@ -7,25 +7,25 @@ import { randomUUID } from 'crypto'
 import { homedir } from 'os'
 import { existsSync, statSync } from 'fs'
 
-const CWD_MARKER_PREFIX = '\x1b]633;mux-cwd='
+const CWD_MARKER_PREFIX = '\x1b]633;takoyaki-cwd='
 const CWD_MARKER_SUFFIX = '\x07'
 const POWERSHELL_BOOTSTRAP = [
-  '$global:__mux_original_prompt = ${function:prompt}',
-  'function global:__mux_emit_cwd {',
+  '$global:__takoyaki_original_prompt = ${function:prompt}',
+  'function global:__takoyaki_emit_cwd {',
   '  try {',
   '    $encoded = [Uri]::EscapeDataString((Get-Location).Path)',
   `    [Console]::Out.Write("${CWD_MARKER_PREFIX}$encoded${CWD_MARKER_SUFFIX}")`,
   '  } catch {}',
   '}',
   'function global:prompt {',
-  '  __mux_emit_cwd',
-  '  if ($global:__mux_original_prompt) {',
-  '    & $global:__mux_original_prompt',
+  '  __takoyaki_emit_cwd',
+  '  if ($global:__takoyaki_original_prompt) {',
+  '    & $global:__takoyaki_original_prompt',
   '  } else {',
   '    "PS $(Get-Location)> "',
   '  }',
   '}',
-  '__mux_emit_cwd',
+  '__takoyaki_emit_cwd',
 ].join('\n')
 
 export interface TerminalInfo {
@@ -50,7 +50,7 @@ export class TerminalManager extends EventEmitter {
       cols: 120,
       rows: 30,
       cwd: workingDir,
-      env: { ...process.env, MUX_SURFACE_ID: surfaceId || id } as Record<string, string>,
+      env: { ...process.env, TAKOYAKI_SURFACE_ID: surfaceId || id } as Record<string, string>,
       useConpty: true,
     })
 
@@ -126,7 +126,7 @@ export class TerminalManager extends EventEmitter {
     let match: RegExpExecArray | null
 
     // eslint-disable-next-line no-control-regex
-    const cwdRegex = /\x1b\]633;mux-cwd=([^\x07]*?)\x07/g
+    const cwdRegex = /\x1b\]633;takoyaki-cwd=([^\x07]*?)\x07/g
     while ((match = cwdRegex.exec(data)) !== null) {
       lastIndex = match.index + match[0].length
       try {

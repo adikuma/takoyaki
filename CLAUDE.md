@@ -1,4 +1,4 @@
-# mux
+# Takoyaki
 
 Electron terminal multiplexer for AI coding agents. React renderer, node-pty terminals, zustand state, CSS variable theming.
 
@@ -14,7 +14,7 @@ src/
 │   ├── rpc.ts          # JSON-RPC 2.0 handler for external tools
 │   └── socket-server.ts # TCP socket on 127.0.0.1:PORT
 ├── preload/
-│   └── index.ts        # IPC bridge via contextBridge (window.mux)
+│   └── index.ts        # IPC bridge via contextBridge (window.takoyaki)
 └── renderer/
     ├── App.tsx          # root layout, IPC listeners, toast
     ├── Sidebar.tsx      # project list, smart collapse, theme toggle
@@ -62,6 +62,8 @@ Do not commit code that has lint errors. Warnings in test files (e.g. `any` in m
 - camelCase for variables and functions, PascalCase for components
 - Use `npm` (not pnpm)
 - Single-line commit messages: `type: description` (feat, fix, chore, test, docs)
+- Update `docs/CHANGELOG.md` for every release-facing change
+- Keep changelog entries short and versioned: `## [x.y.z] - YYYY-MM-DD`, then compact bullets under `Added`, `Changed`, or `Fixed`
 
 ## Design System Rules
 
@@ -87,17 +89,17 @@ style={{ background: 'rgba(255,255,255,0.04)' }}
 
 ## Key Architecture Decisions
 
-- **Surface ID vs Terminal ID**: each pane has a surfaceId (stable, used in hooks) and terminalId (internal, for node-pty). `MUX_SURFACE_ID` env var is set in each PTY so hooks report back which pane triggered them.
-- **Status flow**: hook fires in Claude Code -> `mux-notify.js` sends JSON-RPC `status.update` -> main process stores in map -> broadcasts to renderer -> sidebar shows glyph.
-- **Editor flow**: projects and tasks open directly in the configured editor from the sidebar. The default editor is stored under `~/.mux/preferences.json`.
+- **Surface ID vs Terminal ID**: each pane has a surfaceId (stable, used in hooks) and terminalId (internal, for node-pty). `TAKOYAKI_SURFACE_ID` env var is set in each PTY so hooks report back which pane triggered them.
+- **Status flow**: hook fires in Claude Code -> `takoyaki-notify.js` sends JSON-RPC `status.update` -> main process stores in map -> broadcasts to renderer -> sidebar shows glyph.
+- **Editor flow**: projects and tasks open directly in the configured editor from the sidebar. The default editor is stored under `~/.takoyaki/preferences.json`.
 - **Activity tracking**: keyboard input timestamps per workspace. Sidebar collapses projects with no input for 1 hour and no agent activity.
 - **Theming**: CSS variables on `:root` (dark default), `[data-theme="light"]` override. Terminal theme is separate (xterm doesn't support CSS vars) - `getTerminalTheme(mode)` returns the right object.
 
 ## Storage Locations
 
-- `~/.mux/state.json` - workspace layout persistence
-- `~/.mux/bin/mux-notify.js` - hook notification script
-- `~/.mux/socket_addr` - TCP socket address for external tools
+- `~/.takoyaki/state.json` - workspace layout persistence
+- `~/.takoyaki/bin/takoyaki-notify.js` - hook notification script
+- `~/.takoyaki/socket_addr` - TCP socket address for external tools
 - `~/.claude/settings.json` - hook registration (modified by installer)
 
 ## Testing
@@ -109,5 +111,5 @@ Tests are in `src/__tests__/`. Run with `npm run test`. Tests cover workspace ma
 1. Check if the feature touches main process, renderer, or both
 2. For IPC: add handler in `main/index.ts`, bridge in `preload/index.ts`, type in `renderer/types.ts`
 3. For UI: use design tokens from `design.ts`, never hardcode colors
-4. For state: add to zustand store in `store.ts`, keep mutations through `window.mux` IPC
+4. For state: add to zustand store in `store.ts`, keep mutations through `window.takoyaki` IPC
 5. Test both dark and light modes

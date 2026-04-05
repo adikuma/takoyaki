@@ -17,7 +17,7 @@ graph TB
     end
 
     subgraph Preload["Preload (contextBridge)"]
-        Bridge[window.mux IPC bridge]
+        Bridge[window.takoyaki IPC bridge]
     end
 
     subgraph Main["Main Process (Node.js)"]
@@ -70,7 +70,7 @@ sequenceDiagram
     participant Main as WorkspaceManager
 
     User->>Renderer: clicks "split right"
-    Renderer->>Preload: window.mux.surface.split()
+    Renderer->>Preload: window.takoyaki.surface.split()
     Preload->>Main: ipcMain.handle('surface:split')
     Main->>Main: splitFocused() mutates pane tree
     Main->>Main: emitChange()
@@ -85,13 +85,13 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Claude as Claude Code
-    participant Script as mux-notify.js
+    participant Script as takoyaki-notify.js
     participant Socket as SocketServer
     participant Main as Main Process
     participant UI as Renderer
 
     Claude->>Script: Stop hook fires
-    Script->>Script: reads ~/.mux/socket_addr
+    Script->>Script: reads ~/.takoyaki/socket_addr
     Script->>Socket: TCP connect, JSON-RPC status.update
     Socket->>Main: onStatusUpdate(surfaceId, "finished")
     Main->>Main: surfaceStatuses map updated
@@ -134,8 +134,8 @@ graph TD
 
 ```mermaid
 flowchart LR
-    CSS["app.css<br/>:root { --cmux-bg: #0a0a0b }<br/>[data-theme=light] { --cmux-bg: #f7f6f4 }"]
-    Tokens["design.ts<br/>colors.bg = var(--cmux-bg)"]
+    CSS["app.css<br/>:root { --takoyaki-bg: #0a0a0b }<br/>[data-theme=light] { --takoyaki-bg: #f7f6f4 }"]
+    Tokens["design.ts<br/>colors.bg = var(--takoyaki-bg)"]
     Components["React components<br/>style={{ background: colors.bg }}"]
     XTerm["xterm.js<br/>getTerminalTheme(mode)<br/>hardcoded hex"]
 
@@ -143,14 +143,14 @@ flowchart LR
     CSS -.->|custom event| XTerm
 
     Toggle["Theme toggle"] -->|localStorage + data-theme| CSS
-    Toggle -->|cmux-theme-changed event| XTerm
+    Toggle -->|takoyaki-theme-changed event| XTerm
 ```
 
 ## IPC bridge surface
 
 ```mermaid
 graph LR
-    subgraph window.mux
+    subgraph window.takoyaki
         terminal["terminal<br/>create, write, resize,<br/>destroy, onData, onExit"]
         workspace["workspace<br/>list, select, close, create,<br/>onChange, createTask, removeTask"]
         surface["surface<br/>focus"]
@@ -166,12 +166,12 @@ graph LR
 
 ```mermaid
 graph TD
-    subgraph "~/.mux/"
+    subgraph "~/.takoyaki/"
         state["state.json<br/>workspace layout"]
         activity["activity.json<br/>activity tracking"]
         prefs["preferences.json<br/>default editor"]
         addr["socket_addr<br/>TCP host:port"]
-        notify["bin/mux-notify.js<br/>hook script"]
+        notify["bin/takoyaki-notify.js<br/>hook script"]
     end
 
     subgraph "~/.claude/"
@@ -179,7 +179,7 @@ graph TD
     end
 
     subgraph "project/.git/"
-        tasks["mux-tasks.json<br/>task metadata"]
+        tasks["takoyaki-tasks.json<br/>task metadata"]
     end
 ```
 
@@ -201,7 +201,7 @@ graph TB
         E["editor: PowerShell quoting"]
     end
 
-    Sandbox -->|"window.mux.* API only"| Bridge
+    Sandbox -->|"window.takoyaki.* API only"| Bridge
     Bridge -->|"ipcMain.handle"| Trusted
     S -.->|"no network exposure"| Trusted
     G -.->|"no shell injection"| Trusted

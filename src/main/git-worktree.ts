@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 const GIT_TIMEOUT_MS = 12_000
-const TASKS_METADATA_FILE = 'mux-tasks.json'
+const TASKS_METADATA_FILE = 'takoyaki-tasks.json'
 
 export interface CreateTaskOptions {
   projectRoot: string
