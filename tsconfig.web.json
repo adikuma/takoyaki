@@ -8,5 +8,5 @@
       "@/*": ["./src/renderer/*"]
     }
   },
-  "include": ["src/renderer/**/*"]
+  "include": ["src/renderer/**/*", "src/shared/**/*"]
 }

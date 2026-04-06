@@ -64,6 +64,8 @@ Do not commit code that has lint errors. Warnings in test files (e.g. `any` in m
 - Single-line commit messages: `type: description` (feat, fix, chore, test, docs)
 - Update `docs/CHANGELOG.md` for every release-facing change
 - Keep changelog entries short and versioned: `## [x.y.z] - YYYY-MM-DD`, then compact bullets under `Added`, `Changed`, or `Fixed`
+- After each meaningful implementation, update the local root `NOTES.md` with the date, decision, learning, and any important follow up
+- Keep `NOTES.md` gitignored and local only. It is our running implementation memory and should not be committed
 
 ## Design System Rules
 

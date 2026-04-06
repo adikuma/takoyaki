@@ -103,6 +103,27 @@ describe('WorkspaceManager', () => {
     })
   })
 
+  describe('promoteProjectToGit', () => {
+    it('upgrades a plain project in place when git is detected later', () => {
+      const project = wm.create('plain-folder', '/repos/plain-folder', '/repos/plain-folder', false)
+
+      const updated = wm.promoteProjectToGit(project.id, '/repos/plain-folder', 'main')
+
+      expect(updated?.gitEnabled).toBe(true)
+      expect(updated?.branchName).toBe('main')
+      expect(updated?.projectRoot).toBe('/repos/plain-folder')
+      expect(wm.get(project.id)?.gitEnabled).toBe(true)
+      expect(wm.get(project.id)?.branchName).toBe('main')
+    })
+
+    it('does nothing for task workspaces', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+      const task = wm.createTask(project.id, 'auth refactor', '/tmp/task-auth', 'task/auth-refactor', 'main')
+
+      expect(wm.promoteProjectToGit(task!.id, '/tmp/task-auth', 'task/auth-refactor')).toBeNull()
+    })
+  })
+
   describe('syncRecoveredTasks', () => {
     it('creates recovered task workspaces without changing the active project', () => {
       const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)

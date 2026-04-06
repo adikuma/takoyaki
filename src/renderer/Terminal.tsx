@@ -4,8 +4,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { ChevronDown, ChevronUp, X } from 'lucide-react'
 import { getTerminalTheme, fonts, colors, sizes } from './design'
-import type { TerminalRuntimeInfo } from './types'
+import type { TerminalEvent, TerminalRuntimeInfo, TerminalSnapshot } from './types'
 import type { TerminalFrame } from './terminal-layout'
+import { matchTakoyakiShortcut } from '../shared/shortcuts'
 import '@xterm/xterm/css/xterm.css'
 
 let terminalRuntimeInfoPromise: Promise<TerminalRuntimeInfo> | null = null
@@ -24,6 +25,39 @@ function getTerminalRuntimeInfo(): Promise<TerminalRuntimeInfo> {
   return terminalRuntimeInfoPromise
 }
 
+function formatTerminalExitMessage(exitCode: number | null, exitSignal: number | null): string {
+  if (exitCode !== null) return `\r\n[exited: ${exitCode}]`
+  if (exitSignal !== null) return `\r\n[exited: signal ${exitSignal}]`
+  return '\r\n[exited]'
+}
+
+function snapshotRestoreData(snapshot: TerminalSnapshot): string {
+  return snapshot.serializedState || snapshot.history
+}
+
+function shouldLetTerminalOwnControlKey(event: KeyboardEvent): boolean {
+  if (!(event.ctrlKey || event.metaKey)) return false
+
+  const key = event.key.toLowerCase()
+  if (
+    matchTakoyakiShortcut({
+      key: event.key,
+      shiftKey: event.shiftKey,
+      altKey: event.altKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+    })
+  ) {
+    return false
+  }
+
+  if (key === 'c') return false
+  if (key === 'v') return false
+  if (key === 'tab') return false
+
+  return true
+}
+
 interface Props {
   surfaceId: string
   terminalId: string
@@ -39,6 +73,10 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
   const frameRef = useRef<TerminalFrame | null>(frame)
+  const pendingEventsRef = useRef<TerminalEvent[]>([])
+  const hydratedRef = useRef(false)
+  const lastAppliedEventIdRef = useRef(0)
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve())
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [isAlternateScreen, setIsAlternateScreen] = useState(false)
@@ -84,6 +122,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
           if (!dims || dims.cols < 2 || dims.rows < 1) return
 
           if (term.cols !== dims.cols || term.rows !== dims.rows) {
+            // sidebar and layout changes need to settle into one real resize not a stream of animated widths
             term.resize(dims.cols, dims.rows)
             void window.takoyaki.terminal.resize(terminalId, dims.cols, dims.rows)
           }
@@ -94,15 +133,84 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
     }, 32)
   }, [clearPendingResize, terminalId])
 
+  const queueTerminalTask = useCallback((task: () => Promise<void> | void) => {
+    writeQueueRef.current = writeQueueRef.current.then(async () => {
+      await task()
+    })
+    writeQueueRef.current = writeQueueRef.current.catch(() => {
+      // keep the queue alive even if one render step fails
+    })
+    return writeQueueRef.current
+  }, [])
+
+  const writeToTerminal = useCallback((term: XTerm, data: string) => {
+    if (!data) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      try {
+        term.write(data, () => resolve())
+      } catch {
+        resolve()
+      }
+    })
+  }, [])
+
+  const applySnapshot = useCallback(
+    (term: XTerm, snapshot: TerminalSnapshot) =>
+      queueTerminalTask(async () => {
+        // rebuild the view from backend truth before replaying later events
+        term.reset()
+        const serializedState = snapshotRestoreData(snapshot)
+        if (serializedState) await writeToTerminal(term, serializedState)
+        if (snapshot.status === 'exited') {
+          await writeToTerminal(term, formatTerminalExitMessage(snapshot.exitCode, snapshot.exitSignal))
+        }
+        lastAppliedEventIdRef.current = snapshot.lastEventId
+      }),
+    [queueTerminalTask, writeToTerminal],
+  )
+
+  const applyEvent = useCallback(
+    (term: XTerm, event: TerminalEvent) =>
+      queueTerminalTask(async () => {
+        if (event.eventId <= lastAppliedEventIdRef.current) return
+
+        if (event.type === 'started') {
+          term.reset()
+          const serializedState = snapshotRestoreData(event.snapshot)
+          if (serializedState) await writeToTerminal(term, serializedState)
+          if (event.snapshot.status === 'exited') {
+            await writeToTerminal(term, formatTerminalExitMessage(event.snapshot.exitCode, event.snapshot.exitSignal))
+          }
+          lastAppliedEventIdRef.current = Math.max(event.eventId, event.snapshot.lastEventId)
+          return
+        }
+
+        if (event.type === 'output') {
+          await writeToTerminal(term, event.data)
+        } else if (event.type === 'exited') {
+          await writeToTerminal(term, formatTerminalExitMessage(event.exitCode, event.exitSignal))
+        } else if (event.type === 'error') {
+          await writeToTerminal(term, `\r\n[error: ${event.message}]`)
+        }
+
+        lastAppliedEventIdRef.current = event.eventId
+      }),
+    [queueTerminalTask, writeToTerminal],
+  )
+
   useEffect(() => {
     if (!containerRef.current || !window.takoyaki) return
 
     let disposed = false
     let inputDispose: { dispose: () => void } | null = null
     let parsedDispose: { dispose: () => void } | null = null
-    let ptyDataCleanup: (() => void) | null = null
-    let ptyExitCleanup: (() => void) | null = null
+    let terminalEventCleanup: (() => void) | null = null
     let observer: ResizeObserver | null = null
+
+    pendingEventsRef.current = []
+    hydratedRef.current = false
+    lastAppliedEventIdRef.current = 0
+    writeQueueRef.current = Promise.resolve()
 
     const onThemeChanged = (event: Event) => {
       const mode = (event as CustomEvent).detail as 'dark' | 'light'
@@ -150,6 +258,12 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
             }
             return true
           }
+          if (shouldLetTerminalOwnControlKey(event)) {
+            // block browser defaults like select all while still letting xterm send the control byte
+            event.preventDefault()
+            event.stopPropagation()
+            return true
+          }
           return true
         })
 
@@ -174,17 +288,50 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
           setIsAlternateScreen((current) => (current === nextAlternate ? current : nextAlternate))
         })
 
-        ptyDataCleanup = window.takoyaki.terminal.onData((id, data) => {
-          if (id === terminalId) term.write(data)
+        terminalEventCleanup = window.takoyaki.terminal.onEvent((event) => {
+          if (event.terminalId !== terminalId) return
+          if (!hydratedRef.current) {
+            pendingEventsRef.current.push(event)
+            return
+          }
+          void applyEvent(term, event)
         })
 
-        ptyExitCleanup = window.takoyaki.terminal.onExit((id, code) => {
-          if (id === terminalId) term.write(`\r\n[exited: ${code}]`)
-        })
+        // subscribe first so nothing is lost while the snapshot is loading
+        void window.takoyaki.terminal
+          .open(terminalId)
+          .then(async (snapshot) => {
+            if (disposed || !termRef.current) return
+
+            if (snapshot) {
+              await applySnapshot(term, snapshot)
+
+              // keep replaying until the buffer stays empty so older events never get skipped
+              while (pendingEventsRef.current.length > 0) {
+                const replayable = pendingEventsRef.current
+                  .filter((event) => event.eventId > lastAppliedEventIdRef.current)
+                  .sort((first, second) => first.eventId - second.eventId)
+
+                pendingEventsRef.current = []
+                for (const event of replayable) {
+                  await applyEvent(term, event)
+                }
+              }
+            }
+
+            hydratedRef.current = true
+            requestResize()
+          })
+          .catch(() => {
+            hydratedRef.current = true
+          })
 
         observer = new ResizeObserver(() => requestResize())
         observer.observe(mountNode)
-        requestResize()
+
+        queueTerminalTask(() => {
+          requestResize()
+        })
       })
       .catch(() => {
         // terminal init failed, keep pane empty
@@ -196,16 +343,18 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
       observer?.disconnect()
       inputDispose?.dispose()
       parsedDispose?.dispose()
-      ptyDataCleanup?.()
-      ptyExitCleanup?.()
+      terminalEventCleanup?.()
       window.removeEventListener('takoyaki-theme-changed', onThemeChanged)
       searchAddonRef.current = null
       fitRef.current = null
       termRef.current?.dispose()
       termRef.current = null
+      hydratedRef.current = false
+      pendingEventsRef.current = []
+      lastAppliedEventIdRef.current = 0
       setIsAlternateScreen(false)
     }
-  }, [clearPendingResize, requestResize, terminalId])
+  }, [applyEvent, applySnapshot, clearPendingResize, queueTerminalTask, requestResize, terminalId])
 
   useEffect(() => {
     if (!isVisible) {
@@ -223,12 +372,11 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
     if (isFocused && isVisible) {
       term.focus()
-      requestResize()
       return
     }
 
     term.blur()
-  }, [isFocused, isVisible, requestResize])
+  }, [isFocused, isVisible])
 
   useEffect(() => {
     if (!window.takoyaki) return
@@ -289,7 +437,21 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
       }}
       onClick={handleClick}
     >
-      {isFocused && isVisible && <div style={{ height: 2, background: colors.accentSoft, flexShrink: 0 }} />}
+      {isFocused && isVisible && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 2,
+            background: colors.accentSoft,
+            pointerEvents: 'none',
+            zIndex: 3,
+          }}
+        />
+      )}
 
       {searchOpen && isVisible && (
         <div

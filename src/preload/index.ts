@@ -53,6 +53,54 @@ interface PreloadTerminalRuntimeInfo {
   windowsPty: PreloadWindowsPtyInfo | null
 }
 
+type PreloadTerminalSessionStatus = 'running' | 'exited' | 'error'
+
+interface PreloadTerminalSnapshot {
+  terminalId: string
+  cwd: string
+  cols: number
+  rows: number
+  status: PreloadTerminalSessionStatus
+  pid: number | null
+  serializedState: string
+  history: string
+  exitCode: number | null
+  exitSignal: number | null
+  lastEventId: number
+  updatedAt: string
+}
+
+type PreloadTerminalEvent =
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'started'
+      snapshot: PreloadTerminalSnapshot
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'output'
+      data: string
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'exited'
+      exitCode: number | null
+      exitSignal: number | null
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'error'
+      message: string
+    }
+
 type PreloadReviewFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'typechange' | 'untracked'
 type PreloadReviewRenderMode = 'text' | 'binary' | 'oversized'
 
@@ -99,22 +147,16 @@ const api = {
   // shell management (create, write keystrokes, resize, destroy)
   terminal: {
     create: (cwd?: string) => ipcRenderer.invoke('terminal:create', cwd),
+    open: (id: string) => ipcRenderer.invoke('terminal:open', id) as Promise<PreloadTerminalSnapshot | null>,
     write: (id: string, data: string) => ipcRenderer.invoke('terminal:write', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
     destroy: (id: string) => ipcRenderer.invoke('terminal:destroy', id),
     getRuntimeInfo: () => ipcRenderer.invoke('terminal:get-runtime-info') as Promise<PreloadTerminalRuntimeInfo>,
-    onData: (cb: (id: string, data: string) => void) => {
-      const handler = (_: unknown, id: string, data: string) => cb(id, data)
-      ipcRenderer.on('terminal:data', handler)
+    onEvent: (cb: (event: PreloadTerminalEvent) => void) => {
+      const handler = (_: unknown, event: PreloadTerminalEvent) => cb(event)
+      ipcRenderer.on('terminal:event', handler)
       return () => {
-        ipcRenderer.removeListener('terminal:data', handler)
-      }
-    },
-    onExit: (cb: (id: string, code: number) => void) => {
-      const handler = (_: unknown, id: string, code: number) => cb(id, code)
-      ipcRenderer.on('terminal:exit', handler)
-      return () => {
-        ipcRenderer.removeListener('terminal:exit', handler)
+        ipcRenderer.removeListener('terminal:event', handler)
       }
     },
   },

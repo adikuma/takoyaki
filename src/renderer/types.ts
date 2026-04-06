@@ -128,6 +128,54 @@ export interface TerminalRuntimeInfo {
   windowsPty: WindowsPtyInfo | null
 }
 
+export type TerminalSessionStatus = 'running' | 'exited' | 'error'
+
+export interface TerminalSnapshot {
+  terminalId: string
+  cwd: string
+  cols: number
+  rows: number
+  status: TerminalSessionStatus
+  pid: number | null
+  serializedState: string
+  history: string
+  exitCode: number | null
+  exitSignal: number | null
+  lastEventId: number
+  updatedAt: string
+}
+
+export type TerminalEvent =
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'started'
+      snapshot: TerminalSnapshot
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'output'
+      data: string
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'exited'
+      exitCode: number | null
+      exitSignal: number | null
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'error'
+      message: string
+    }
+
 export type ReviewView = 'terminal' | 'review'
 export type ReviewFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'typechange' | 'untracked'
 export type ReviewRenderMode = 'text' | 'binary' | 'oversized'
@@ -173,12 +221,12 @@ declare global {
       }
       terminal: {
         create: (cwd?: string) => Promise<{ id: string; pid: number; cwd: string }>
+        open: (id: string) => Promise<TerminalSnapshot | null>
         write: (id: string, data: string) => Promise<boolean>
         resize: (id: string, cols: number, rows: number) => Promise<void>
         destroy: (id: string) => Promise<boolean>
         getRuntimeInfo: () => Promise<TerminalRuntimeInfo>
-        onData: (cb: (id: string, data: string) => void) => () => void
-        onExit: (cb: (id: string, code: number) => void) => () => void
+        onEvent: (cb: (event: TerminalEvent) => void) => () => void
       }
       workspace: {
         create: (title?: string, cwd?: string) => Promise<Workspace>

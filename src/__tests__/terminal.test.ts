@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import * as nodePty from 'node-pty'
+import type { TerminalEvent, TerminalPromptEvent } from '../main/terminal'
 
-// mock node-pty since conpty needs a real console which vitest doesnt have
 vi.mock('node-pty', () => {
   const EventEmitter = require('events')
   return {
@@ -12,7 +13,7 @@ vi.mock('node-pty', () => {
           emitter.on('data', cb)
           return { dispose: () => emitter.removeAllListeners('data') }
         },
-        onExit: (cb: (e: { exitCode: number }) => void) => {
+        onExit: (cb: (event: { exitCode: number; signal?: number }) => void) => {
           emitter.on('exit', cb)
           return { dispose: () => emitter.removeAllListeners('exit') }
         },
@@ -29,6 +30,15 @@ vi.mock('node-pty', () => {
 
 import { TerminalManager } from '../main/terminal'
 
+type MockPty = {
+  write: ReturnType<typeof vi.fn>
+  resize: ReturnType<typeof vi.fn>
+  kill: ReturnType<typeof vi.fn>
+  _emitter: {
+    emit: (event: string, payload: unknown) => void
+  }
+}
+
 describe('TerminalManager', () => {
   let tm: TerminalManager
 
@@ -40,82 +50,121 @@ describe('TerminalManager', () => {
     tm.destroyAll()
   })
 
-  describe('create', () => {
-    it('creates a terminal and returns info', () => {
-      const info = tm.create()
-      expect(info.id).toBeTruthy()
-      expect(info.pid).toBe(12345)
-      expect(tm.count()).toBe(1)
+  function latestPty(): MockPty {
+    const spawnMock = vi.mocked(nodePty.spawn)
+    const result = spawnMock.mock.results.at(-1)
+    if (!result) throw new Error('expected a spawned pty')
+    return result.value as MockPty
+  }
+
+  async function settleTerminal(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  it('creates a terminal and returns info', () => {
+    const info = tm.create()
+    expect(info.id).toBeTruthy()
+    expect(info.pid).toBe(12345)
+    expect(tm.count()).toBe(1)
+  })
+
+  it('open returns the current snapshot for a terminal', () => {
+    const info = tm.create()
+    const snapshot = tm.open(info.id)
+
+    expect(snapshot).toMatchObject({
+      terminalId: info.id,
+      cwd: info.cwd,
+      cols: 120,
+      rows: 30,
+      status: 'running',
+      pid: 12345,
+      history: '',
+    })
+    expect(snapshot?.lastEventId).toBe(1)
+  })
+
+  it('captures pty output in snapshot history', async () => {
+    const info = tm.create()
+    latestPty()._emitter.emit('data', 'hello from pty')
+    await settleTerminal()
+
+    const snapshot = tm.open(info.id)
+    expect(snapshot?.history).toContain('hello from pty')
+    expect(snapshot?.serializedState).toContain('hello from pty')
+    expect(snapshot?.lastEventId).toBe(2)
+  })
+
+  it('emits a prompt event after the cwd marker returns in terminal output', async () => {
+    const prompts: TerminalPromptEvent[] = []
+    tm.on('prompt', (event: TerminalPromptEvent) => {
+      prompts.push(event)
     })
 
-    it('creates multiple terminals', () => {
-      tm.create()
-      tm.create()
-      expect(tm.count()).toBe(2)
+    const info = tm.create()
+    const cwd = process.cwd().replace(/\\/g, '/')
+    latestPty()._emitter.emit('data', `\x1b]633;takoyaki-cwd=${encodeURIComponent(cwd)}\x07`)
+    await settleTerminal()
+
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toMatchObject({
+      terminalId: info.id,
+      cwd,
     })
   })
 
-  describe('get', () => {
-    it('returns info for existing terminal', () => {
-      const info = tm.create()
-      expect(tm.get(info.id)).toEqual(info)
+  it('emits ordered started output and exited events', async () => {
+    const events: TerminalEvent[] = []
+    tm.on('event', (event: TerminalEvent) => {
+      events.push(event)
     })
 
-    it('returns undefined for unknown id', () => {
-      expect(tm.get('nope')).toBeUndefined()
-    })
+    const info = tm.create()
+    latestPty()._emitter.emit('data', 'one line')
+    latestPty()._emitter.emit('exit', { exitCode: 7, signal: 0 })
+    await settleTerminal()
+
+    expect(events.map((event) => event.type)).toEqual(['started', 'output', 'exited'])
+    expect(events.every((event) => event.terminalId === info.id)).toBe(true)
+    expect(events.map((event) => event.eventId)).toEqual([1, 2, 3])
+
+    const started = events[0]
+    if (started.type !== 'started') throw new Error('expected started event')
+    expect(started.snapshot.lastEventId).toBe(1)
   })
 
-  describe('list', () => {
-    it('lists all terminals', () => {
-      tm.create()
-      tm.create()
-      expect(tm.list()).toHaveLength(2)
-    })
+  it('writes and resizes the live pty', async () => {
+    const info = tm.create()
+    const pty = latestPty()
+
+    expect(tm.write(info.id, 'echo hi\n')).toBe(true)
+    expect(pty.write).toHaveBeenCalledWith('echo hi\n')
+
+    tm.resize(info.id, 140, 42)
+    await settleTerminal()
+    expect(pty.resize).toHaveBeenCalledWith(140, 42)
+
+    const snapshot = tm.open(info.id)
+    expect(snapshot?.cols).toBe(140)
+    expect(snapshot?.rows).toBe(42)
   })
 
-  describe('write', () => {
-    it('writes to terminal', () => {
-      const info = tm.create()
-      const result = tm.write(info.id, 'echo hello\n')
-      expect(result).toBe(true)
-    })
+  it('keeps exited sessions available for snapshot reopen', async () => {
+    const info = tm.create()
+    latestPty()._emitter.emit('data', 'before exit')
+    latestPty()._emitter.emit('exit', { exitCode: 3, signal: 0 })
+    await settleTerminal()
 
-    it('returns false for unknown terminal', () => {
-      expect(tm.write('nope', 'test')).toBe(false)
-    })
+    const snapshot = tm.open(info.id)
+    expect(snapshot?.status).toBe('exited')
+    expect(snapshot?.exitCode).toBe(3)
+    expect(snapshot?.history).toContain('before exit')
   })
 
-  describe('destroy', () => {
-    it('kills a terminal process', () => {
-      const info = tm.create()
-      expect(tm.destroy(info.id)).toBe(true)
-      expect(tm.count()).toBe(0)
-    })
-
-    it('returns false for unknown id', () => {
-      expect(tm.destroy('nope')).toBe(false)
-    })
-  })
-
-  describe('destroyAll', () => {
-    it('kills all terminals', () => {
-      tm.create()
-      tm.create()
-      tm.destroyAll()
-      expect(tm.count()).toBe(0)
-    })
-  })
-
-  describe('events', () => {
-    it('emits data events when pty sends output', () => {
-      const info = tm.create()
-      const received: string[] = []
-      tm.on('data', (id: string, data: string) => {
-        if (id === info.id) received.push(data)
-      })
-      // node-pty mock doesnt auto-emit, but the wiring is correct
-      expect(tm.count()).toBe(1)
-    })
+  it('destroy removes the session entirely', () => {
+    const info = tm.create()
+    expect(tm.destroy(info.id)).toBe(true)
+    expect(tm.open(info.id)).toBeNull()
+    expect(tm.count()).toBe(0)
   })
 })

@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
-import { TerminalManager } from './terminal'
+import { TerminalManager, type TerminalEvent } from './terminal'
 import { WorkspaceManager } from './workspace'
 import { RpcHandler } from './rpc'
 import { SocketServer } from './socket-server'
@@ -14,6 +14,7 @@ import { EditorService, type EditorKind, type EditorLaunchTarget } from './edito
 import { PreferencesService } from './preferences'
 import { getTerminalRuntimeInfo } from './terminal-runtime'
 import { ReviewService } from './review'
+import { matchTakoyakiShortcut } from '../shared/shortcuts'
 import {
   shouldShowHooksBanner,
   installHooks,
@@ -33,6 +34,7 @@ const preferencesService = new PreferencesService()
 const editorService = new EditorService(preferencesService)
 const terminalRuntimeInfo = getTerminalRuntimeInfo()
 const reviewService = new ReviewService()
+const pendingGitRefreshProjects = new Set<string>()
 
 type HookStatusState = 'running' | 'finished' | 'failed'
 interface SurfaceStatusRecord {
@@ -58,6 +60,13 @@ function noteWorkspaceActivity(workspaceId: string | null): void {
   const projectId = workspaces.projectIdForWorkspace(workspaceId) || workspaceId
   workspaceLastActivity.set(projectId, Date.now())
   sendActivity()
+}
+
+function queueProjectGitRefresh(workspaceId: string | null): void {
+  if (!workspaceId) return
+  const workspace = workspaces.get(workspaceId)
+  if (!workspace || workspace.kind !== 'project' || workspace.gitEnabled) return
+  pendingGitRefreshProjects.add(workspaceId)
 }
 
 function sendStatusUpdate(): void {
@@ -179,12 +188,34 @@ async function recoverProjectTasks(projectId: string): Promise<void> {
   )
 }
 
+async function refreshProjectGitState(projectId: string | null, cwdOverride?: string | null): Promise<void> {
+  if (!projectId) return
+
+  const project = workspaces.get(projectId)
+  if (!project || project.kind !== 'project' || project.gitEnabled) return
+
+  const candidatePath =
+    cwdOverride || workspaces.focusedCwd(projectId) || project.projectRoot || project.workingDirectory
+  const repoRoot = await worktreeService.detectRepoRoot(candidatePath)
+  if (!repoRoot) return
+
+  const branchName = await worktreeService.getCurrentBranch(repoRoot).catch(() => null)
+  const upgraded = workspaces.promoteProjectToGit(projectId, repoRoot, branchName)
+  if (upgraded?.gitEnabled) {
+    await recoverProjectTasks(projectId)
+  }
+}
+
 function noteSelection(workspaceId: string | null): void {
   if (!workspaceId) return
   noteWorkspaceActivity(workspaceId)
   const workspace = workspaces.get(workspaceId)
-  if (workspace?.kind === 'project' && workspace.gitEnabled) {
-    void recoverProjectTasks(workspaceId)
+  if (workspace?.kind === 'project') {
+    if (workspace.gitEnabled) {
+      void recoverProjectTasks(workspaceId)
+      return
+    }
+    void refreshProjectGitState(workspaceId)
   }
 }
 
@@ -238,55 +269,54 @@ function createWindow(): void {
     if (!input.control && !input.meta) return
     if (input.type !== 'keyDown') return
 
-    const key = input.key.toLowerCase()
-    if (key === 'b' && !input.shift) {
-      event.preventDefault()
-      send('shortcut', 'toggle-sidebar')
+    const shortcut = matchTakoyakiShortcut({
+      key: input.key,
+      shiftKey: input.shift,
+      altKey: input.alt,
+      ctrlKey: input.control,
+      metaKey: input.meta,
+    })
+
+    if (!shortcut) return
+
+    event.preventDefault()
+
+    if (shortcut.kind === 'shortcut') {
+      send('shortcut', shortcut.action)
+      return
     }
-    if (key === 'd' && !input.shift) {
-      event.preventDefault()
-      workspaces.splitFocused('horizontal')
+
+    if (shortcut.kind === 'split') {
+      workspaces.splitFocused(shortcut.direction)
+      return
     }
-    if (key === 'u' && !input.shift) {
-      event.preventDefault()
-      workspaces.splitFocused('vertical')
-    }
-    if (key === 'w' && !input.shift) {
-      event.preventDefault()
+
+    if (shortcut.kind === 'close-pane') {
       workspaces.closeFocused()
+      return
     }
-    if (input.alt && (key === 'arrowleft' || key === 'arrowright' || key === 'arrowup' || key === 'arrowdown')) {
-      event.preventDefault()
-      const direction = key.replace('arrow', '') as 'left' | 'right' | 'up' | 'down'
-      if (workspaces.moveFocus(direction)) noteWorkspaceActivity(workspaces.activeWorkspaceId)
+
+    if (shortcut.kind === 'move-focus') {
+      if (workspaces.moveFocus(shortcut.direction)) noteWorkspaceActivity(workspaces.activeWorkspaceId)
+      return
     }
-    // ctrl+f: find in terminal
-    if (key === 'f' && !input.shift) {
-      event.preventDefault()
-      send('shortcut', 'find')
-    }
-    // ctrl+shift+f: focus sidebar project search
-    if (key === 'f' && input.shift) {
-      event.preventDefault()
-      send('shortcut', 'find-projects')
-    }
-    // ctrl+o: open folder as new project
-    if (key === 'o' && !input.shift) {
-      event.preventDefault()
+
+    if (shortcut.kind === 'open-project') {
       void openProjectFolder()
+      return
     }
-    // ctrl+shift+s: save session
-    if (key === 's' && input.shift) {
-      event.preventDefault()
+
+    if (shortcut.kind === 'save-session') {
       workspaces.save()
       send('session:saved')
+      return
     }
-    // ctrl+1 through ctrl+9: jump to project by number
-    if (key >= '1' && key <= '9' && !input.shift) {
-      event.preventDefault()
+
+    if (shortcut.kind === 'jump-project') {
       const list = workspaces.list().filter((workspace) => workspace.kind === 'project')
-      const idx = parseInt(key) - 1
-      if (idx < list.length && workspaces.select(list[idx].id)) noteSelection(list[idx].id)
+      if (shortcut.index < list.length && workspaces.select(list[shortcut.index].id)) {
+        noteSelection(list[shortcut.index].id)
+      }
     }
   })
 }
@@ -298,11 +328,16 @@ function setupIpc(): void {
 
   // terminal
   ipcMain.handle('terminal:create', (_, cwd?: string) => terminals.create(cwd))
+  ipcMain.handle('terminal:open', (_, id: string) => terminals.open(id))
   ipcMain.handle('terminal:write', (_, id: string, data: string) => {
     // track keyboard input for workspace activity
     const wsId = workspaces.workspaceForTerminal(id)
     if (wsId) noteWorkspaceActivity(wsId)
-    return terminals.write(id, data)
+    const wrote = terminals.write(id, data)
+    if (wrote && wsId && (data.includes('\r') || data.includes('\n'))) {
+      queueProjectGitRefresh(wsId)
+    }
+    return wrote
   })
   ipcMain.handle('terminal:resize', (_, id: string, cols: number, rows: number) => terminals.resize(id, cols, rows))
   ipcMain.handle('terminal:destroy', (_, id: string) => terminals.destroy(id))
@@ -417,7 +452,11 @@ function setupIpc(): void {
   // surface
   ipcMain.handle('surface:focus', (_, surfaceId: string) => {
     const focused = workspaces.focusSurface(surfaceId)
-    if (focused) noteWorkspaceActivity(workspaces.workspaceIdForSurface(surfaceId))
+    if (focused) {
+      const workspaceId = workspaces.workspaceIdForSurface(surfaceId)
+      noteWorkspaceActivity(workspaceId)
+      void refreshProjectGitState(workspaceId, workspaceId ? workspaces.focusedCwd(workspaceId) : null)
+    }
     return focused
   })
 
@@ -518,14 +557,23 @@ function setupIpc(): void {
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
 
+  terminals.on('prompt', ({ terminalId, cwd }) => {
+    const workspaceId = workspaces.workspaceForTerminal(terminalId)
+    const projectId = workspaces.projectIdForWorkspace(workspaceId) || workspaceId
+    if (!projectId || !pendingGitRefreshProjects.has(projectId)) return
+    pendingGitRefreshProjects.delete(projectId)
+    void refreshProjectGitState(projectId, cwd)
+  })
   // forward terminal events to renderer
-  terminals.on('data', (id: string, data: string) => send('terminal:data', id, data))
-  terminals.on('exit', (id: string, code: number) => send('terminal:exit', id, code))
+  terminals.on('event', (event: TerminalEvent) => send('terminal:event', event))
   // prune activity entries for workspaces that no longer exist
   workspaces.on('change', () => {
     const projectIds = new Set(workspaces.listProjects().map((p) => p.id))
     for (const id of workspaceLastActivity.keys()) {
       if (!projectIds.has(id)) workspaceLastActivity.delete(id)
+    }
+    for (const id of Array.from(pendingGitRefreshProjects)) {
+      if (!projectIds.has(id)) pendingGitRefreshProjects.delete(id)
     }
   })
   // send full snapshot on every change so renderer never needs to re-fetch

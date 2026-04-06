@@ -110,15 +110,21 @@
   }
 }
 
-.xterm-viewport {
+.xterm .xterm-viewport {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
-.xterm-viewport::-webkit-scrollbar {
+.xterm .xterm-viewport::-webkit-scrollbar {
   width: 0;
   height: 0;
   display: none;
+}
+
+.xterm .xterm-scrollable-element > .scrollbar,
+.xterm .xterm-scrollable-element > .shadow,
+.xterm .xterm-decoration-overview-ruler {
+  display: none !important;
 }
 
 .takoyaki-pane-alt .xterm-cursor {

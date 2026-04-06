@@ -3,6 +3,7 @@ import { Check, ChevronDown, FolderOpen, X } from 'lucide-react'
 import { colors, button, fonts, sizes } from './design'
 import { useStore } from './store'
 import type { EditorKind, HookDiagnostics } from './types'
+import { shortcutDisplayRows } from '../shared/shortcuts'
 import claudeLogo from './assets/providers/claude.svg?raw'
 import cursorLogo from './assets/providers/cursor.svg?raw'
 import vscodeLogo from './assets/providers/vscode.svg?raw'
@@ -469,26 +470,13 @@ export function Settings({ open, onClose }: Props) {
               Shortcuts
             </span>
             <div className="mt-3 flex flex-col">
-              {[
-                ['Open project', 'Ctrl+O'],
-                ['Split right', 'Ctrl+D'],
-                ['Split down', 'Ctrl+U'],
-                ['Close pane', 'Ctrl+W'],
-                ['Toggle sidebar', 'Ctrl+B'],
-                ['Search terminal', 'Ctrl+F'],
-                ['Search projects', 'Ctrl+Shift+F'],
-                ['Save session', 'Ctrl+Shift+S'],
-                ['Move focus', 'Ctrl+Alt+Arrow'],
-                ['Next item', 'Ctrl+Tab'],
-                ['Previous item', 'Ctrl+Shift+Tab'],
-                ['Jump to project', 'Ctrl+1-9'],
-              ].map(([desc, key]) => (
-                <div key={key} className="flex items-center justify-between py-[5px]">
+              {shortcutDisplayRows.map((shortcut) => (
+                <div key={shortcut.label} className="flex items-center justify-between py-[5px]">
                   <span className="text-[12px]" style={{ color: colors.textSecondary }}>
-                    {desc}
+                    {shortcut.description}
                   </span>
                   <span className="text-[11px]" style={{ fontFamily: fonts.mono, color: colors.textGhost }}>
-                    {key}
+                    {shortcut.label}
                   </span>
                 </div>
               ))}

@@ -179,6 +179,28 @@ export class WorkspaceManager extends EventEmitter {
     return true
   }
 
+  promoteProjectToGit(workspaceId: string, projectRoot: string, branchName: string | null): Workspace | null {
+    const entry = this.state.get(workspaceId)
+    if (!entry || entry.workspace.kind !== 'project') return null
+
+    let changed = false
+    if (!entry.workspace.gitEnabled) {
+      entry.workspace.gitEnabled = true
+      changed = true
+    }
+    if (projectRoot && entry.workspace.projectRoot !== projectRoot) {
+      entry.workspace.projectRoot = projectRoot
+      changed = true
+    }
+    if (entry.workspace.branchName !== branchName) {
+      entry.workspace.branchName = branchName
+      changed = true
+    }
+
+    if (changed) this.emitChange()
+    return this.serializeWorkspace(entry)
+  }
+
   createTask(
     parentProjectId: string,
     title: string,

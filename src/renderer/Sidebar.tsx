@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Diff,
   FolderClosed,
+  MoreVertical,
   Moon,
   Pin,
   Plus,
@@ -56,8 +57,9 @@ function RowActionCluster({ children }: { children: ReactNode }) {
       className="flex items-center gap-0 shrink-0"
       style={{
         padding: 2,
-        borderRadius: sizes.radiusLg,
-        ...button.base,
+        borderRadius: sizes.radiusMd,
+        background: colors.bg,
+        border: `1px solid ${colors.borderSubtle}`,
       }}
     >
       {children}
@@ -119,6 +121,113 @@ function RowActionButton({
         {children}
       </button>
     </Tooltip>
+  )
+}
+
+interface RowMenuItem {
+  label: string
+  icon: ReactNode
+  onSelect: () => void
+  disabled?: boolean
+  danger?: boolean
+  hint?: string
+}
+
+function RowActionMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div ref={rootRef} className="relative shrink-0">
+      <RowActionButton
+        label={label}
+        active={open}
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen((current) => !current)
+        }}
+      >
+        <MoreVertical size={12} strokeWidth={1.8} />
+      </RowActionButton>
+
+      {open && (
+        <div
+          className="absolute right-0 top-full z-40 mt-2 min-w-[180px] overflow-hidden rounded-lg"
+          style={{
+            background: colors.bg,
+            border: `1px solid ${colors.separator}`,
+            boxShadow: '0 10px 28px rgba(0,0,0,0.18)',
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {items.map((item) => {
+            const restingColor = item.disabled ? colors.textGhost : item.danger ? colors.error : colors.textSecondary
+            const menuButton = (
+              <button
+                key={item.label}
+                type="button"
+                disabled={item.disabled}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[12px] transition-colors duration-[120ms]"
+                style={{
+                  color: restingColor,
+                  opacity: item.disabled ? 0.7 : 1,
+                }}
+                onClick={() => {
+                  if (item.disabled) return
+                  setOpen(false)
+                  item.onSelect()
+                }}
+                onMouseEnter={(event) => {
+                  if (item.disabled) return
+                  event.currentTarget.style.background = colors.bgInput
+                  event.currentTarget.style.color = item.danger ? colors.error : colors.textPrimary
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.background = 'transparent'
+                  event.currentTarget.style.color = restingColor
+                }}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>{item.icon}</span>
+                  <span>{item.label}</span>
+                </span>
+              </button>
+            )
+
+            if (item.disabled && item.hint) {
+              return (
+                <Tooltip key={item.label} content={item.hint} side="left" delay={150}>
+                  <div style={{ width: '100%' }}>{menuButton}</div>
+                </Tooltip>
+              )
+            }
+
+            return menuButton
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -461,7 +570,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
 
   const sidebarContent = (
     <div
-      className="flex flex-col h-full shrink-0 overflow-hidden transition-[width] duration-200"
+      className={`flex flex-col h-full shrink-0 overflow-hidden ${narrow ? 'transition-[width] duration-200' : ''}`}
       style={{
         width: narrow ? 'min(300px, calc(100vw - 24px))' : collapsed ? 0 : sizes.sidebarWidth,
         background: colors.bg,
@@ -538,6 +647,44 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
           const status = getWorkspaceStatus(surfaceStatuses, ws.surfaceIds || [])
           const taskLabel = tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'}` : null
           const branchLabel = getProjectBranchLabel(ws)
+          const projectMenuItems: RowMenuItem[] = [
+            {
+              label: 'New task',
+              icon: <GitBranchIcon size={12} />,
+              disabled: !gitEnabled,
+              hint: !gitEnabled ? 'git required' : undefined,
+              onSelect: () => {
+                if (!gitEnabled) return
+                openTaskModal(ws.id)
+              },
+            },
+            {
+              label: 'Open in review',
+              icon: <Diff size={12} strokeWidth={1.8} />,
+              disabled: !gitEnabled,
+              hint: !gitEnabled ? 'git required' : undefined,
+              onSelect: () => {
+                if (!gitEnabled) return
+                void openReview(ws.id)
+                if (narrow) onRequestClose?.()
+              },
+            },
+            {
+              label: 'Open in editor',
+              icon: <ArrowUpRight size={12} strokeWidth={1.8} />,
+              onSelect: () => {
+                void openInEditor(ws.id)
+              },
+            },
+            {
+              label: 'Close project',
+              icon: <Trash2 size={12} strokeWidth={1.8} />,
+              danger: true,
+              onSelect: () => {
+                setConfirmClose({ id: ws.id, title: ws.title })
+              },
+            },
+          ]
           return (
             <div key={ws.id}>
               <div
@@ -558,17 +705,6 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                         {ws.title}
                       </span>
                       <RowActionCluster>
-                        <RowActionButton
-                          label={gitEnabled ? 'New task' : 'Git required'}
-                          disabled={!gitEnabled}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (!gitEnabled) return
-                            openTaskModal(ws.id)
-                          }}
-                        >
-                          <GitBranchIcon size={12} />
-                        </RowActionButton>
                         {projectRoot && (
                           <RowActionButton
                             label={projectPinned ? 'Unpin project' : 'Pin project'}
@@ -581,37 +717,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                             <Pin size={12} strokeWidth={1.8} />
                           </RowActionButton>
                         )}
-                        <RowActionButton
-                          label={gitEnabled ? 'Open in review' : 'Git required'}
-                          disabled={!gitEnabled}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (!gitEnabled) return
-                            void openReview(ws.id)
-                            if (narrow) onRequestClose?.()
-                          }}
-                        >
-                          <Diff size={12} strokeWidth={1.8} />
-                        </RowActionButton>
-                        <RowActionButton
-                          label="Open in editor"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void openInEditor(ws.id)
-                          }}
-                        >
-                          <ArrowUpRight size={12} strokeWidth={1.8} />
-                        </RowActionButton>
-                        <RowActionButton
-                          label="Close project"
-                          danger
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setConfirmClose({ id: ws.id, title: ws.title })
-                          }}
-                        >
-                          <Trash2 size={12} strokeWidth={1.8} />
-                        </RowActionButton>
+                        <RowActionMenu label="Project actions" items={projectMenuItems} />
                       </RowActionCluster>
                     </div>
                     <div style={{ marginTop: 2, fontSize: 10, color: colors.textGhost, fontFamily: fonts.mono }}>
@@ -633,6 +739,31 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                 const taskSelected = task.id === activeId
                 const taskStatus = getWorkspaceStatus(surfaceStatuses, task.surfaceIds || [])
                 const isLast = taskIndex === tasks.length - 1
+                const taskMenuItems: RowMenuItem[] = [
+                  {
+                    label: 'Open in review',
+                    icon: <Diff size={12} strokeWidth={1.8} />,
+                    onSelect: () => {
+                      void openReview(task.id)
+                      if (narrow) onRequestClose?.()
+                    },
+                  },
+                  {
+                    label: 'Open in editor',
+                    icon: <ArrowUpRight size={12} strokeWidth={1.8} />,
+                    onSelect: () => {
+                      void openInEditor(task.id)
+                    },
+                  },
+                  {
+                    label: 'Remove task',
+                    icon: <Trash2 size={12} strokeWidth={1.8} />,
+                    danger: true,
+                    onSelect: () => {
+                      setConfirmRemoveTask({ id: task.id, title: task.title, force: false })
+                    },
+                  },
+                ]
                 return (
                   <div
                     key={task.id}
@@ -694,35 +825,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                           </span>
                           {taskStatus && <StatusGlyph status={taskStatus} />}
                           <RowActionCluster>
-                            <RowActionButton
-                              label="Open in review"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void openReview(task.id)
-                                if (narrow) onRequestClose?.()
-                              }}
-                            >
-                              <Diff size={12} strokeWidth={1.8} />
-                            </RowActionButton>
-                            <RowActionButton
-                              label="Open in editor"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void openInEditor(task.id)
-                              }}
-                            >
-                              <ArrowUpRight size={12} strokeWidth={1.8} />
-                            </RowActionButton>
-                            <RowActionButton
-                              label="Remove task"
-                              danger
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setConfirmRemoveTask({ id: task.id, title: task.title, force: false })
-                              }}
-                            >
-                              <Trash2 size={12} strokeWidth={1.8} />
-                            </RowActionButton>
+                            <RowActionMenu label="Task actions" items={taskMenuItems} />
                           </RowActionCluster>
                         </div>
                         <div
