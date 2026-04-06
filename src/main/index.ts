@@ -256,7 +256,12 @@ function createWindow(): void {
     },
   })
 
-  mainWindow.on('ready-to-show', () => mainWindow?.show())
+  mainWindow.on('ready-to-show', () => {
+    // start maximized so the app feels full screen
+    // without using exclusive fullscreen mode
+    mainWindow?.maximize()
+    mainWindow?.show()
+  })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
