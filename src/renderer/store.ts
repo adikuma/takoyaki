@@ -1,9 +1,9 @@
-// this is my first time with zustand so don't roast me
 import { create } from 'zustand'
 import type {
   EditorAvailability,
   EditorKind,
   HookSurfaceStatus,
+  PlanSnapshot,
   ReviewPatch,
   ReviewSnapshot,
   ReviewView,
@@ -26,11 +26,16 @@ function getReviewErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to load review.'
 }
 
+function getPlanErrorDetail(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unable to load plan.'
+}
+
 interface MuxStore {
   workspaces: Workspace[]
   activeWorkspaceId: string | null
   sidebarCollapsed: boolean
   surfaceStatuses: Record<string, HookSurfaceStatus>
+  activeClaudeSurfaceIds: string[]
   ready: boolean
 
   refresh: () => Promise<void>
@@ -39,6 +44,7 @@ interface MuxStore {
   closeWorkspace: (id: string) => void
   toggleSidebar: () => void
   setSurfaceStatuses: (statuses: Record<string, HookSurfaceStatus>) => void
+  setActiveClaudeSurfaceIds: (surfaceIds: string[]) => void
   workspaceActivity: Record<string, number>
   setWorkspaceActivity: (data: Record<string, number>) => void
   pinnedProjectRoots: string[]
@@ -67,6 +73,13 @@ interface MuxStore {
   refreshReview: () => Promise<void>
   selectReviewFile: (filePath: string) => Promise<void>
   toggleReviewFocusMode: () => void
+  planWorkspaceId: string | null
+  planSurfaceId: string | null
+  planSnapshots: Record<string, PlanSnapshot | undefined>
+  planLoading: boolean
+  planError: string | null
+  openPlan: (workspaceId: string, surfaceId?: string) => Promise<void>
+  closePlan: () => void
 }
 
 export const useStore = create<MuxStore>((set, get) => ({
@@ -74,6 +87,7 @@ export const useStore = create<MuxStore>((set, get) => ({
   activeWorkspaceId: null,
   sidebarCollapsed: false,
   surfaceStatuses: {},
+  activeClaudeSurfaceIds: [],
   ready: false,
 
   refresh: async () => {
@@ -96,8 +110,12 @@ export const useStore = create<MuxStore>((set, get) => ({
       activeWorkspaceId: id,
       activeView: 'terminal',
       reviewWorkspaceId: null,
+      planWorkspaceId: null,
+      planSurfaceId: null,
       selectedReviewFilePath: null,
       reviewFocusMode: false,
+      planLoading: false,
+      planError: null,
     })
     await api.workspace.select(id)
   },
@@ -110,6 +128,7 @@ export const useStore = create<MuxStore>((set, get) => ({
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
   setSurfaceStatuses: (statuses: Record<string, HookSurfaceStatus>) => set({ surfaceStatuses: statuses }),
+  setActiveClaudeSurfaceIds: (surfaceIds: string[]) => set({ activeClaudeSurfaceIds: surfaceIds }),
 
   workspaceActivity: {},
   setWorkspaceActivity: (data: Record<string, number>) => set({ workspaceActivity: data }),
@@ -194,6 +213,11 @@ export const useStore = create<MuxStore>((set, get) => ({
   reviewLoading: false,
   reviewPatchLoading: false,
   reviewError: null,
+  planWorkspaceId: null,
+  planSurfaceId: null,
+  planSnapshots: {},
+  planLoading: false,
+  planError: null,
 
   openReview: async (workspaceId) => {
     if (!api?.review || !api.workspace) return
@@ -202,10 +226,14 @@ export const useStore = create<MuxStore>((set, get) => ({
       activeWorkspaceId: workspaceId,
       activeView: 'review',
       reviewWorkspaceId: workspaceId,
+      planWorkspaceId: null,
+      planSurfaceId: null,
       reviewLoading: true,
       reviewPatchLoading: false,
       reviewFocusMode: false,
       reviewError: null,
+      planLoading: false,
+      planError: null,
     })
     await api.workspace.select(workspaceId)
 
@@ -330,4 +358,54 @@ export const useStore = create<MuxStore>((set, get) => ({
   },
 
   toggleReviewFocusMode: () => set((state) => ({ reviewFocusMode: !state.reviewFocusMode })),
+
+  openPlan: async (workspaceId, surfaceId) => {
+    if (!api?.plan || !api?.workspace) return
+    const resolvedSurfaceId = surfaceId ?? get().planSurfaceId
+
+    set({
+      activeWorkspaceId: workspaceId,
+      activeView: 'terminal',
+      planWorkspaceId: workspaceId,
+      planSurfaceId: resolvedSurfaceId,
+      planLoading: true,
+      planError: null,
+      reviewWorkspaceId: null,
+      selectedReviewFilePath: null,
+      reviewFocusMode: false,
+    })
+    await api.workspace.select(workspaceId)
+
+    try {
+      const snapshot = await api.plan.getSnapshot(workspaceId, { refresh: true })
+      if (get().planWorkspaceId !== workspaceId) return
+      if (!snapshot) {
+        set({
+          planLoading: false,
+          planError: 'No plan is available for this workspace yet.',
+        })
+        return
+      }
+
+      set((state) => ({
+        planSnapshots: { ...state.planSnapshots, [workspaceId]: snapshot },
+        planLoading: false,
+        planError: null,
+      }))
+    } catch (error) {
+      if (get().planWorkspaceId !== workspaceId) return
+      set({
+        planLoading: false,
+        planError: getPlanErrorDetail(error),
+      })
+    }
+  },
+  closePlan: () =>
+    set({
+      activeView: 'terminal',
+      planWorkspaceId: null,
+      planSurfaceId: null,
+      planLoading: false,
+      planError: null,
+    }),
 }))

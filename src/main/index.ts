@@ -14,7 +14,9 @@ import { EditorService, type EditorKind, type EditorLaunchTarget } from './edito
 import { PreferencesService } from './preferences'
 import { getTerminalRuntimeInfo } from './terminal-runtime'
 import { ReviewService } from './review'
+import { PlanService } from './plan'
 import { matchTakoyakiShortcut } from '../shared/shortcuts'
+import type { HookSessionMetadata } from '../shared/plan'
 import {
   shouldShowHooksBanner,
   installHooks,
@@ -27,13 +29,14 @@ import {
 let mainWindow: BrowserWindow | null = null
 const terminals = new TerminalManager()
 const workspaces = new WorkspaceManager(terminals)
-const rpc = new RpcHandler(workspaces, terminals)
+const rpc = new RpcHandler(workspaces, terminals, app.getVersion())
 const socketServer = new SocketServer(rpc)
 const worktreeService = new GitWorktreeService()
 const preferencesService = new PreferencesService()
 const editorService = new EditorService(preferencesService)
 const terminalRuntimeInfo = getTerminalRuntimeInfo()
 const reviewService = new ReviewService()
+const planService = new PlanService()
 const pendingGitRefreshProjects = new Set<string>()
 
 type HookStatusState = 'running' | 'finished' | 'failed'
@@ -71,6 +74,10 @@ function queueProjectGitRefresh(workspaceId: string | null): void {
 
 function sendStatusUpdate(): void {
   send('status:changed', Object.fromEntries(surfaceStatuses))
+}
+
+function sendActiveClaudeSurfaceUpdate(): void {
+  send('plan:active-surfaces-changed', planService.getActiveSurfaceIds())
 }
 
 async function waitForHookEvent(startedAt: number, surfaceId: string, status: string): Promise<boolean> {
@@ -128,17 +135,39 @@ function defaultEventName(status: HookStatusState): string {
   return 'Stop'
 }
 
-rpc.onStatusUpdate = (surfaceId: string, update: { status: string; eventName: string }) => {
+rpc.onStatusUpdate = (surfaceId: string, update: { status: string; eventName: string } & HookSessionMetadata) => {
   if (!surfaceId) return
 
   const status = update.status as HookStatusState
-  if (status !== 'running' && status !== 'finished' && status !== 'failed') return
-
+  const normalizedStatus = status === 'running' || status === 'finished' || status === 'failed' ? status : 'finished'
+  const eventName = update.eventName || defaultEventName(normalizedStatus)
+  const isSessionLifecycleEvent = eventName === 'SessionStart' || eventName === 'SessionEnd'
+  if (
+    !isSessionLifecycleEvent &&
+    normalizedStatus !== 'running' &&
+    normalizedStatus !== 'finished' &&
+    normalizedStatus !== 'failed'
+  ) {
+    return
+  }
   const record: SurfaceStatusRecord = {
-    status,
-    eventName: update.eventName || defaultEventName(status),
+    status: normalizedStatus,
+    eventName,
     receivedAt: Date.now(),
   }
+
+  planService.noteSurfaceSession(surfaceId, update)
+  if (planService.noteSurfaceEvent(surfaceId, record.eventName)) {
+    sendActiveClaudeSurfaceUpdate()
+  }
+
+  const eventWsId = workspaces.workspaceIdForSurface(surfaceId)
+  if (eventWsId) {
+    noteWorkspaceActivity(eventWsId)
+  }
+
+  lastHookEvent = { surfaceId, ...record }
+  if (isSessionLifecycleEvent) return
 
   clearRunningExpiry(surfaceId)
   surfaceStatuses.set(surfaceId, record)
@@ -146,12 +175,9 @@ rpc.onStatusUpdate = (surfaceId: string, update: { status: string; eventName: st
     scheduleRunningExpiry(surfaceId, record.receivedAt)
   }
 
-  lastHookEvent = { surfaceId, ...record }
-
   // resolve workspace for this surface and track activity
-  const eventWsId = workspaces.workspaceIdForSurface(surfaceId)
   if (eventWsId) {
-    noteWorkspaceActivity(eventWsId)
+    void planService.handleStatusUpdate(surfaceId, eventWsId, normalizedStatus)
   }
 
   // send project-aware toast for finished/failed events (only for non-active workspaces)
@@ -168,6 +194,18 @@ rpc.onStatusUpdate = (surfaceId: string, update: { status: string; eventName: st
 function send(channel: string, ...args: unknown[]): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args)
+  }
+}
+
+function planContextForWorkspace(workspaceId: string) {
+  const workspace = workspaces.get(workspaceId)
+  if (!workspace) return null
+
+  return {
+    workspaceId,
+    workingDirectory: workspace.workingDirectory || null,
+    projectRoot: workspace.projectRoot || null,
+    surfaceIds: workspace.surfaceIds || null,
   }
 }
 
@@ -550,6 +588,12 @@ function setupIpc(): void {
     }
     return reviewService.getFilePatch(workspace, filePath)
   })
+  ipcMain.handle('plan:get-snapshot', async (_, workspaceId: string, options?: { refresh?: boolean }) => {
+    const context = planContextForWorkspace(workspaceId)
+    if (!context) return null
+    return planService.getSnapshot(context, options)
+  })
+  ipcMain.handle('plan:get-active-surface-ids', () => planService.getActiveSurfaceIds())
 
   // window controls
   ipcMain.handle('window:minimize', () => mainWindow?.minimize())
@@ -579,6 +623,10 @@ function setupIpc(): void {
     }
     for (const id of Array.from(pendingGitRefreshProjects)) {
       if (!projectIds.has(id)) pendingGitRefreshProjects.delete(id)
+    }
+    const validSurfaceIds = workspaces.list().flatMap((workspace) => workspace.surfaceIds || [])
+    if (planService.pruneSurfaceIds(validSurfaceIds)) {
+      sendActiveClaudeSurfaceUpdate()
     }
   })
   // send full snapshot on every change so renderer never needs to re-fetch

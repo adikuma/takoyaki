@@ -2,14 +2,22 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, FileText, X } from 'lucide-react'
 import { getTerminalTheme, fonts, colors, sizes } from './design'
 import type { TerminalEvent, TerminalRuntimeInfo, TerminalSnapshot } from './types'
 import type { TerminalFrame } from './terminal-layout'
 import { matchTakoyakiShortcut } from '../shared/shortcuts'
+import { Tooltip } from './Tooltip'
+import { useStore } from './store'
 import '@xterm/xterm/css/xterm.css'
 
 let terminalRuntimeInfoPromise: Promise<TerminalRuntimeInfo> | null = null
+const DEFAULT_TERMINAL_FONT_SIZE = 14
+const MIN_TERMINAL_FONT_SIZE = 11
+const MAX_TERMINAL_FONT_SIZE = 22
+const TERMINAL_FONT_SIZE_STEP = 1
+const TERMINAL_FONT_SIZE_KEY = 'takoyaki-terminal-font-size'
+const TERMINAL_FONT_SIZE_EVENT = 'takoyaki-terminal-font-size-changed'
 
 function getTerminalRuntimeInfo(): Promise<TerminalRuntimeInfo> {
   if (!terminalRuntimeInfoPromise) {
@@ -58,18 +66,37 @@ function shouldLetTerminalOwnControlKey(event: KeyboardEvent): boolean {
   return true
 }
 
+function clampTerminalFontSize(next: number): number {
+  return Math.max(MIN_TERMINAL_FONT_SIZE, Math.min(MAX_TERMINAL_FONT_SIZE, next))
+}
+
+function getStoredTerminalFontSize(): number {
+  if (typeof window === 'undefined') return DEFAULT_TERMINAL_FONT_SIZE
+  const raw = window.localStorage.getItem(TERMINAL_FONT_SIZE_KEY)
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? clampTerminalFontSize(parsed) : DEFAULT_TERMINAL_FONT_SIZE
+}
+
+function persistTerminalFontSize(next: number): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(TERMINAL_FONT_SIZE_KEY, String(next))
+  window.dispatchEvent(new CustomEvent(TERMINAL_FONT_SIZE_EVENT, { detail: next }))
+}
+
 interface Props {
   surfaceId: string
   terminalId: string
+  workspaceId: string
   frame: TerminalFrame | null
   isFocused?: boolean
 }
 
-export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
+export function Terminal({ surfaceId, terminalId, workspaceId, frame, isFocused }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
+  const initialFontSizeRef = useRef(getStoredTerminalFontSize())
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
   const frameRef = useRef<TerminalFrame | null>(frame)
@@ -77,11 +104,18 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
   const hydratedRef = useRef(false)
   const lastAppliedEventIdRef = useRef(0)
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const [fontSize, setFontSize] = useState(getStoredTerminalFontSize)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [isAlternateScreen, setIsAlternateScreen] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const isVisible = Boolean(frame && frame.width >= 24 && frame.height >= 24)
+  const openPlan = useStore((state) => state.openPlan)
+  const closePlan = useStore((state) => state.closePlan)
+  const planWorkspaceId = useStore((state) => state.planWorkspaceId)
+  const planSurfaceId = useStore((state) => state.planSurfaceId)
+  const planLoading = useStore((state) => state.planLoading)
+  const activeClaudeSurfaceIds = useStore((state) => state.activeClaudeSurfaceIds)
 
   // keep the latest frame outside the setup effect so visibility changes do not recreate xterm
   useEffect(() => {
@@ -224,7 +258,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
         const term = new XTerm({
           fontFamily: fonts.mono,
-          fontSize: 14,
+          fontSize: initialFontSizeRef.current,
           lineHeight: 1.25,
           cursorBlink: false,
           cursorStyle: 'bar',
@@ -357,6 +391,19 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
   }, [applyEvent, applySnapshot, clearPendingResize, queueTerminalTask, requestResize, terminalId])
 
   useEffect(() => {
+    const handleTerminalFontSizeChanged = (event: Event) => {
+      const next = Number((event as CustomEvent).detail)
+      if (!Number.isFinite(next)) return
+      setFontSize(clampTerminalFontSize(next))
+    }
+
+    window.addEventListener(TERMINAL_FONT_SIZE_EVENT, handleTerminalFontSizeChanged)
+    return () => {
+      window.removeEventListener(TERMINAL_FONT_SIZE_EVENT, handleTerminalFontSizeChanged)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!isVisible) {
       termRef.current?.blur()
       return
@@ -377,6 +424,15 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
     term.blur()
   }, [isFocused, isVisible])
+
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    if (term.options.fontSize === fontSize) return
+
+    term.options.fontSize = fontSize
+    if (isVisible) requestResize()
+  }, [fontSize, isVisible, requestResize])
 
   useEffect(() => {
     if (!window.takoyaki) return
@@ -405,6 +461,30 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
     if (!isVisible) return
     void window.takoyaki?.surface.focus(surfaceId)
     termRef.current?.focus()
+  }
+
+  const showPlanButton = activeClaudeSurfaceIds.includes(surfaceId)
+  const isPlanOpen = planWorkspaceId === workspaceId && planSurfaceId === surfaceId
+  const handlePlanClick = () => {
+    if (isPlanOpen) {
+      closePlan()
+      return
+    }
+    void openPlan(workspaceId, surfaceId)
+  }
+
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!(event.ctrlKey || event.metaKey)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const direction = event.deltaY < 0 ? 1 : -1
+    const next = clampTerminalFontSize(fontSize + direction * TERMINAL_FONT_SIZE_STEP)
+    if (next === fontSize) return
+
+    persistTerminalFontSize(next)
+    setFontSize(next)
   }
 
   const wrapperStyle = frame
@@ -436,6 +516,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
         zIndex: isFocused && isVisible ? 2 : 1,
       }}
       onClick={handleClick}
+      onWheel={handleWheel}
     >
       {isFocused && isVisible && (
         <div
@@ -451,6 +532,38 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
             zIndex: 3,
           }}
         />
+      )}
+
+      {isVisible && showPlanButton && (
+        <div className="absolute right-2 top-3 z-[4]" style={{ pointerEvents: 'auto' }}>
+          <Tooltip content={isPlanOpen ? 'hide plan' : 'view plan'} side="bottom">
+            <button
+              type="button"
+              className={`takoyaki-ghost-btn flex h-8 w-8 items-center justify-center rounded-md${isPlanOpen ? ' always-visible' : ''}`}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: isPlanOpen ? colors.textPrimary : colors.textSecondary,
+                opacity: planLoading && isPlanOpen ? 0.78 : undefined,
+              }}
+              onClick={(event) => {
+                event.stopPropagation()
+                handlePlanClick()
+              }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.background = colors.bgHover
+                event.currentTarget.style.color = colors.textPrimary
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.background = 'transparent'
+                event.currentTarget.style.color = isPlanOpen ? colors.textPrimary : colors.textSecondary
+              }}
+              aria-label={isPlanOpen ? 'hide plan' : 'view plan'}
+            >
+              <FileText size={sizes.iconBase} strokeWidth={1.8} />
+            </button>
+          </Tooltip>
+        </div>
       )}
 
       {searchOpen && isVisible && (

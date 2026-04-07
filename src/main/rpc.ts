@@ -1,7 +1,7 @@
 // handles json-rpc v1 (text) and v2 (json) protocol
-
 import { WorkspaceManager } from './workspace'
 import { TerminalManager } from './terminal'
+import type { HookSessionMetadata } from '../shared/plan'
 
 export interface RpcRequest {
   id?: string | number
@@ -24,12 +24,19 @@ function err(id: unknown, code: string, message: string): RpcResponse {
   return { id: id as string, ok: false, error: { code, message } }
 }
 
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
 export class RpcHandler {
-  onStatusUpdate: ((surfaceId: string, update: { status: string; eventName: string }) => void) | null = null
+  onStatusUpdate:
+    | ((surfaceId: string, update: { status: string; eventName: string } & HookSessionMetadata) => void)
+    | null = null
 
   constructor(
     private workspaces: WorkspaceManager,
     private terminals: TerminalManager,
+    private appVersion: string,
   ) {}
 
   handleV1(line: string): string {
@@ -57,7 +64,7 @@ export class RpcHandler {
 
     switch (req.method) {
       case 'system.capabilities':
-        return ok(req.id, { name: 'takoyaki', version: '0.2.0', capabilities: ['workspace', 'surface'] })
+        return ok(req.id, { name: 'takoyaki', version: this.appVersion, capabilities: ['workspace', 'surface'] })
 
       case 'workspace.list':
         return ok(
@@ -120,7 +127,17 @@ export class RpcHandler {
         const eventName = (p.event_name as string) || ''
         if (!surfaceId) return err(req.id, 'invalid_params', 'surface_id required')
         if (!status) return err(req.id, 'invalid_params', 'status required')
-        if (this.onStatusUpdate) this.onStatusUpdate(surfaceId, { status, eventName })
+        if (this.onStatusUpdate) {
+          this.onStatusUpdate(surfaceId, {
+            status,
+            eventName,
+            sessionId: optionalString(p.session_id),
+            transcriptPath: optionalString(p.transcript_path),
+            cwd: optionalString(p.cwd),
+            permissionMode: optionalString(p.permission_mode),
+            slug: optionalString(p.slug),
+          })
+        }
         return ok(req.id, {})
       }
 

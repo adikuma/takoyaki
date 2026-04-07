@@ -50,7 +50,7 @@ function readSettings(): ClaudeSettings {
 
 function getHookEntries(
   settings: ClaudeSettings,
-  eventName: 'Stop' | 'StopFailure' | 'UserPromptSubmit',
+  eventName: 'SessionStart' | 'SessionEnd' | 'Stop' | 'StopFailure' | 'UserPromptSubmit',
 ): ClaudeHookMatcher[] {
   const entries = settings.hooks?.[eventName]
   return Array.isArray(entries) ? (entries as ClaudeHookMatcher[]) : []
@@ -74,6 +74,8 @@ describe('hooks', () => {
     const diagnostics = getHookDiagnostics()
 
     expect(diagnostics.health).toBe('missing')
+    expect(diagnostics.hookStates.SessionStart).toBe('missing')
+    expect(diagnostics.hookStates.SessionEnd).toBe('missing')
     expect(diagnostics.hookStates.Stop).toBe('missing')
     expect(diagnostics.hookStates.StopFailure).toBe('missing')
     expect(diagnostics.hookStates.UserPromptSubmit).toBe('missing')
@@ -84,6 +86,8 @@ describe('hooks', () => {
   it('replaces managed takoyaki hook installs and preserves unrelated hooks', () => {
     writeSettings({
       hooks: {
+        SessionStart: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SessionStart`)],
+        SessionEnd: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SessionEnd`)],
         Stop: [
           commandEntry(`${testState.nodePath} ${currentNotifyPath} --event Stop`),
           commandEntry('bark notify --title Claude'),
@@ -101,6 +105,8 @@ describe('hooks', () => {
     expect(getHookEntries(settings, 'Stop').some((entry) => JSON.stringify(entry).includes('bark notify'))).toBe(true)
 
     const diagnostics = getHookDiagnostics()
+    expect(diagnostics.hookStates.SessionStart).toBe('current')
+    expect(diagnostics.hookStates.SessionEnd).toBe('current')
     expect(diagnostics.hookStates.Stop).toBe('current')
     expect(diagnostics.hookStates.StopFailure).toBe('current')
     expect(diagnostics.hookStates.UserPromptSubmit).toBe('current')
@@ -117,6 +123,8 @@ describe('hooks', () => {
 
     expect(diagnostics.health).toBe('connected')
     expect(diagnostics.notifyScriptPath.replace(/\\/g, '/')).toBe(currentNotifyPath)
+    expect(diagnostics.installedHooks.SessionStart).toBe(true)
+    expect(diagnostics.installedHooks.SessionEnd).toBe(true)
     expect(diagnostics.installedHooks.Stop).toBe(true)
     expect(diagnostics.installedHooks.StopFailure).toBe(true)
     expect(diagnostics.installedHooks.UserPromptSubmit).toBe(true)
@@ -125,6 +133,8 @@ describe('hooks', () => {
   it('marks malformed managed commands as degraded', () => {
     writeSettings({
       hooks: {
+        SessionStart: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SessionStart`)],
+        SessionEnd: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SessionEnd`)],
         Stop: [commandEntry(`${testState.nodePath} /tmp/takoyaki-notify.js --event Stop`)],
         StopFailure: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event StopFailure`)],
         UserPromptSubmit: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event UserPromptSubmit`)],

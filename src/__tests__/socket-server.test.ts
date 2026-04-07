@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { version as appVersion } from '../../package.json'
 import * as net from 'net'
 import { SocketServer } from '../main/socket-server'
 import { RpcHandler } from '../main/rpc'
@@ -35,7 +36,7 @@ describe('SocketServer', () => {
   beforeEach(async () => {
     const terminals = new TerminalManager()
     const workspaces = new WorkspaceManager(terminals)
-    const rpc = new RpcHandler(workspaces, terminals)
+    const rpc = new RpcHandler(workspaces, terminals, appVersion)
     server = new SocketServer(rpc)
     port = await server.start()
   })

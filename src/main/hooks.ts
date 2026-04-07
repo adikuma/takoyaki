@@ -12,7 +12,7 @@ const HOOKS_STATE_FILE = path.join(TAKOYAKI_DIR, 'hooks-setup.json')
 const CLAUDE_SETTINGS = path.join(os.homedir(), '.claude', 'settings.json')
 const NOTIFY_SCRIPT = path.join(TAKOYAKI_DIR, 'bin', 'takoyaki-notify.js')
 const SOCKET_ADDR_FILE = path.join(TAKOYAKI_DIR, 'socket_addr')
-const REQUIRED_HOOK_EVENTS = ['Stop', 'StopFailure', 'UserPromptSubmit'] as const
+const REQUIRED_HOOK_EVENTS = ['SessionStart', 'SessionEnd', 'Stop', 'StopFailure', 'UserPromptSubmit'] as const
 type RequiredHookEvent = (typeof REQUIRED_HOOK_EVENTS)[number]
 type HookCommandState = 'current' | 'missing' | 'invalid'
 type JsonObject = Record<string, unknown>
@@ -141,6 +141,11 @@ async function main() {
   const surfaceId = readArg('--surface-id') ||
     process.env.TAKOYAKI_SURFACE_ID ||
     firstString(payload, ['surfaceId', 'surface_id'])
+  const sessionId = firstString(payload, ['sessionId', 'session_id'])
+  const transcriptPath = firstString(payload, ['transcriptPath', 'transcript_path'])
+  const cwd = firstString(payload, ['cwd'])
+  const permissionMode = firstString(payload, ['permissionMode', 'permission_mode'])
+  const slug = firstString(payload, ['slug'])
   const status = EVENT_TO_STATUS[eventName] ||
     firstString(payload, ['status']) ||
     'finished'
@@ -157,6 +162,11 @@ async function main() {
     const params = { status }
     if (surfaceId) params.surface_id = surfaceId
     if (normalizedEventName) params.event_name = normalizedEventName
+    if (sessionId) params.session_id = sessionId
+    if (transcriptPath) params.transcript_path = transcriptPath
+    if (cwd) params.cwd = cwd
+    if (permissionMode) params.permission_mode = permissionMode
+    if (slug) params.slug = slug
 
     const msg = JSON.stringify({ id: 1, method: 'status.update', params })
     const client = net.createConnection({ host, port: parseInt(port, 10) }, () => {
@@ -231,9 +241,35 @@ export function installHooks(): boolean {
     if (!settings.hooks) settings.hooks = {}
     if (!fs.existsSync(settingsDir)) fs.mkdirSync(settingsDir, { recursive: true })
 
+    settings.hooks.SessionStart = removeManagedHookEntries(settings.hooks.SessionStart || [])
+    settings.hooks.SessionEnd = removeManagedHookEntries(settings.hooks.SessionEnd || [])
     settings.hooks.Stop = removeManagedHookEntries(settings.hooks.Stop || [])
     settings.hooks.StopFailure = removeManagedHookEntries(settings.hooks.StopFailure || [])
     settings.hooks.UserPromptSubmit = removeManagedHookEntries(settings.hooks.UserPromptSubmit || [])
+
+    for (const matcher of ['startup', 'resume', 'clear', 'compact']) {
+      settings.hooks.SessionStart.push({
+        matcher,
+        hooks: [
+          {
+            type: 'command',
+            command: hookCommand('SessionStart'),
+            timeout: 5000,
+          },
+        ],
+      })
+    }
+
+    settings.hooks.SessionEnd.push({
+      matcher: '.*',
+      hooks: [
+        {
+          type: 'command',
+          command: hookCommand('SessionEnd'),
+          timeout: 5000,
+        },
+      ],
+    })
 
     settings.hooks.Stop.push({
       matcher: '.*',
@@ -459,6 +495,8 @@ function readHooksState(): HooksState {
 
 function emptyInstalledHooks(): Record<RequiredHookEvent, boolean> {
   return {
+    SessionStart: false,
+    SessionEnd: false,
     Stop: false,
     StopFailure: false,
     UserPromptSubmit: false,
@@ -467,6 +505,8 @@ function emptyInstalledHooks(): Record<RequiredHookEvent, boolean> {
 
 function emptyHookStates(): Record<RequiredHookEvent, HookCommandState> {
   return {
+    SessionStart: 'missing',
+    SessionEnd: 'missing',
     Stop: 'missing',
     StopFailure: 'missing',
     UserPromptSubmit: 'missing',
@@ -481,6 +521,8 @@ function readClaudeSettings(): ClaudeSettings {
 
 function getInstalledHooks(states: Record<RequiredHookEvent, HookCommandState>): Record<RequiredHookEvent, boolean> {
   return {
+    SessionStart: states.SessionStart === 'current',
+    SessionEnd: states.SessionEnd === 'current',
     Stop: states.Stop === 'current',
     StopFailure: states.StopFailure === 'current',
     UserPromptSubmit: states.UserPromptSubmit === 'current',
@@ -490,6 +532,8 @@ function getInstalledHooks(states: Record<RequiredHookEvent, HookCommandState>):
 function getHookCommandStates(settings: ClaudeSettings): Record<RequiredHookEvent, HookCommandState> {
   const hooks = isJsonObject(settings.hooks) ? settings.hooks : {}
   return {
+    SessionStart: getHookCommandState(asHookMatchers(hooks.SessionStart), 'SessionStart'),
+    SessionEnd: getHookCommandState(asHookMatchers(hooks.SessionEnd), 'SessionEnd'),
     Stop: getHookCommandState(asHookMatchers(hooks.Stop), 'Stop'),
     StopFailure: getHookCommandState(asHookMatchers(hooks.StopFailure), 'StopFailure'),
     UserPromptSubmit: getHookCommandState(asHookMatchers(hooks.UserPromptSubmit), 'UserPromptSubmit'),

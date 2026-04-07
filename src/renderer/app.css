@@ -46,6 +46,9 @@
     --takoyaki-tooltip-bg: #1c1917;
     --takoyaki-tooltip-text: #f5f5f4;
     --takoyaki-terminal-bg: #0a0a0b;
+    --takoyaki-terminal-scrollbar-thumb: rgba(255, 255, 255, 0.14);
+    --takoyaki-terminal-scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+    --takoyaki-terminal-scrollbar-track: transparent;
     --takoyaki-toast-bg: #0a0a0b;
     --takoyaki-backdrop: rgba(0, 0, 0, 0.5);
   }
@@ -85,6 +88,9 @@
     --takoyaki-tooltip-bg: #ffffff;
     --takoyaki-tooltip-text: #1c1917;
     --takoyaki-terminal-bg: #ffffff;
+    --takoyaki-terminal-scrollbar-thumb: rgba(0, 0, 0, 0.18);
+    --takoyaki-terminal-scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+    --takoyaki-terminal-scrollbar-track: transparent;
     --takoyaki-toast-bg: #ffffff;
     --takoyaki-backdrop: rgba(0, 0, 0, 0.2);
   }
@@ -111,20 +117,54 @@
 }
 
 .xterm .xterm-viewport {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: none !important;
 }
 
 .xterm .xterm-viewport::-webkit-scrollbar {
   width: 0;
   height: 0;
-  display: none;
 }
 
-.xterm .xterm-scrollable-element > .scrollbar,
+.xterm .xterm-scrollable-element > .scrollbar {
+  width: 3px !important;
+  right: 4px !important;
+  top: 8px !important;
+  bottom: 8px !important;
+  height: auto !important;
+}
+
+.xterm .xterm-scrollable-element > .scrollbar > .slider {
+  border-radius: 999px;
+  min-height: 56px !important;
+}
+
 .xterm .xterm-scrollable-element > .shadow,
 .xterm .xterm-decoration-overview-ruler {
   display: none !important;
+}
+
+.takoyaki-plan-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--takoyaki-terminal-scrollbar-thumb) var(--takoyaki-terminal-scrollbar-track);
+  -ms-overflow-style: auto;
+}
+
+.takoyaki-plan-scroll::-webkit-scrollbar {
+  display: block;
+  width: 3px;
+}
+
+.takoyaki-plan-scroll::-webkit-scrollbar-track {
+  background: var(--takoyaki-terminal-scrollbar-track);
+}
+
+.takoyaki-plan-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--takoyaki-terminal-scrollbar-thumb);
+}
+
+.takoyaki-plan-scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--takoyaki-terminal-scrollbar-thumb-hover);
 }
 
 .takoyaki-pane-alt .xterm-cursor {
@@ -163,6 +203,19 @@
     background 120ms ease,
     box-shadow 120ms ease,
     color 200ms ease;
+}
+
+.takoyaki-ghost-btn {
+  opacity: 0;
+  transition:
+    opacity 0.25s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.takoyaki-pane-shell:hover .takoyaki-ghost-btn,
+.takoyaki-pane-alt:hover .takoyaki-ghost-btn,
+.takoyaki-ghost-btn.always-visible {
+  opacity: 1;
 }
 
 @keyframes takoyaki-spin {
@@ -213,4 +266,185 @@
 }
 .takoyaki-tooltip {
   animation: takoyaki-tooltip-in 0.12s ease-out;
+}
+
+.takoyaki-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--takoyaki-text-secondary);
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+.takoyaki-markdown > :first-child {
+  margin-top: 0;
+}
+
+.takoyaki-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.takoyaki-markdown p,
+.takoyaki-markdown ul,
+.takoyaki-markdown ol,
+.takoyaki-markdown blockquote,
+.takoyaki-markdown pre,
+.takoyaki-markdown hr,
+.takoyaki-markdown .takoyaki-markdown-table-wrap {
+  margin: 0.6rem 0;
+}
+
+.takoyaki-markdown h1 {
+  margin: 0 0 0.95rem;
+  color: var(--takoyaki-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.takoyaki-markdown h2 {
+  margin: 1.35rem 0 0.45rem;
+  color: var(--takoyaki-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.takoyaki-markdown h3 {
+  margin: 1rem 0 0.35rem;
+  color: var(--takoyaki-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.takoyaki-markdown p,
+.takoyaki-markdown li,
+.takoyaki-markdown blockquote {
+  color: var(--takoyaki-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.takoyaki-markdown strong {
+  color: var(--takoyaki-text-primary);
+  font-weight: 600;
+}
+
+.takoyaki-markdown em {
+  color: var(--takoyaki-text-primary);
+}
+
+.takoyaki-markdown ul,
+.takoyaki-markdown ol {
+  padding-left: 1.25rem;
+}
+
+.takoyaki-markdown ul {
+  list-style-type: disc;
+}
+
+.takoyaki-markdown ol {
+  list-style-type: decimal;
+}
+
+.takoyaki-markdown ul ul {
+  list-style-type: circle;
+}
+
+.takoyaki-markdown ul ul ul {
+  list-style-type: square;
+}
+
+.takoyaki-markdown ol ol {
+  list-style-type: lower-alpha;
+}
+
+.takoyaki-markdown ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.takoyaki-markdown li + li {
+  margin-top: 0.2rem;
+}
+
+.takoyaki-markdown a {
+  color: var(--takoyaki-accent-soft);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--takoyaki-accent-soft) 45%, transparent);
+  text-underline-offset: 0.12em;
+}
+
+.takoyaki-markdown a:hover {
+  color: var(--takoyaki-accent);
+}
+
+.takoyaki-markdown blockquote {
+  border-left: 2px solid var(--takoyaki-border-subtle);
+  padding-left: 0.8rem;
+}
+
+.takoyaki-markdown :not(pre) > code {
+  border: 1px solid var(--takoyaki-border-subtle);
+  border-radius: 0.375rem;
+  background: var(--takoyaki-bg-input);
+  padding: 0.1rem 0.35rem;
+  color: var(--takoyaki-text-primary);
+  font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+}
+
+.takoyaki-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--takoyaki-border-subtle);
+  border-radius: 0.5rem;
+  background: var(--takoyaki-bg-subtle);
+  padding: 0.8rem 0.9rem;
+  color: var(--takoyaki-text-primary);
+}
+
+.takoyaki-markdown pre code {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.takoyaki-markdown hr {
+  border: 0;
+  border-top: 1px solid var(--takoyaki-border-subtle);
+}
+
+.takoyaki-markdown .takoyaki-markdown-table-wrap {
+  overflow-x: auto;
+}
+
+.takoyaki-markdown table {
+  width: 100%;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.takoyaki-markdown th,
+.takoyaki-markdown td {
+  border: 1px solid var(--takoyaki-border-subtle);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.takoyaki-markdown th {
+  color: var(--takoyaki-text-primary);
+  font-weight: 600;
+}
+
+.takoyaki-markdown td {
+  color: var(--takoyaki-text-secondary);
 }

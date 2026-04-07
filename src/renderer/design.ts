@@ -107,6 +107,9 @@ export function getTerminalTheme(mode: 'dark' | 'light') {
       brightMagenta: '#a855f7',
       brightCyan: '#06b6d4',
       brightWhite: '#0a0a0b',
+      scrollbarSliderBackground: 'rgba(0, 0, 0, 0.12)',
+      scrollbarSliderHoverBackground: 'rgba(0, 0, 0, 0.2)',
+      scrollbarSliderActiveBackground: 'rgba(0, 0, 0, 0.26)',
     } as const
   }
 
@@ -133,6 +136,9 @@ export function getTerminalTheme(mode: 'dark' | 'light') {
     brightMagenta: '#d8b4fe',
     brightCyan: '#67e8f9',
     brightWhite: '#fafaf9',
+    scrollbarSliderBackground: 'rgba(255, 255, 255, 0.1)',
+    scrollbarSliderHoverBackground: 'rgba(255, 255, 255, 0.16)',
+    scrollbarSliderActiveBackground: 'rgba(255, 255, 255, 0.22)',
   } as const
 }
 

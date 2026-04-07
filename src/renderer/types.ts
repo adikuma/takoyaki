@@ -1,3 +1,7 @@
+import type { PlanSnapshot, PlanSnapshotOptions } from '../shared/plan'
+
+export type { HookSessionMetadata, PlanSnapshot, PlanSnapshotOptions } from '../shared/plan'
+
 // domain types
 // workspace is the main unit of organization in the application
 export interface Workspace {
@@ -40,6 +44,7 @@ export interface HookSurfaceStatus {
   eventName: string
   receivedAt: number
 }
+
 // same thing but with surfaceId attached so Takoyaki knows WHICH pane it is at
 export interface HookRuntimeEvent extends HookSurfaceStatus {
   surfaceId: string
@@ -61,11 +66,15 @@ export interface HookDiagnostics {
   notifyScriptExists: boolean
   // hook registration
   hookStates: {
+    SessionStart: 'current' | 'missing' | 'invalid'
+    SessionEnd: 'current' | 'missing' | 'invalid'
     Stop: 'current' | 'missing' | 'invalid'
     StopFailure: 'current' | 'missing' | 'invalid'
     UserPromptSubmit: 'current' | 'missing' | 'invalid'
   }
   installedHooks: {
+    SessionStart: boolean
+    SessionEnd: boolean
     Stop: boolean
     StopFailure: boolean
     UserPromptSubmit: boolean
@@ -264,6 +273,11 @@ declare global {
       review: {
         getSnapshot: (workspaceId: string) => Promise<ReviewSnapshot>
         getFilePatch: (workspaceId: string, filePath: string) => Promise<ReviewPatch>
+      }
+      plan: {
+        getSnapshot: (workspaceId: string, options?: PlanSnapshotOptions) => Promise<PlanSnapshot | null>
+        getActiveSurfaceIds: () => Promise<string[]>
+        onActiveSurfacesChange: (cb: (surfaceIds: string[]) => void) => () => void
       }
       activity: {
         get: () => Promise<Record<string, number>>

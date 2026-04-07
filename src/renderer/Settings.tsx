@@ -126,6 +126,8 @@ export function Settings({ open, onClose }: Props) {
   // NOTE: claude code has hooks and the others are placeholders for future
   const claudeHooks = installedHooks
     ? [
+        { name: 'SessionStart', ok: installedHooks.SessionStart },
+        { name: 'SessionEnd', ok: installedHooks.SessionEnd },
         { name: 'Stop', ok: installedHooks.Stop },
         { name: 'StopFailure', ok: installedHooks.StopFailure },
         { name: 'UserPromptSubmit', ok: installedHooks.UserPromptSubmit },

@@ -132,6 +132,18 @@ interface PreloadReviewPatch {
   detail: string | null
 }
 
+interface PreloadPlanSnapshot {
+  workspaceId: string
+  slug: string
+  sourcePath: string
+  updatedAt: string
+  markdown: string
+}
+
+interface PreloadPlanSnapshotOptions {
+  refresh?: boolean
+}
+
 type PreloadEditorKind = 'cursor' | 'vscode' | 'zed' | 'explorer'
 type PreloadEditorLaunchTarget = 'preferred' | PreloadEditorKind
 type PreloadShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects'
@@ -208,6 +220,18 @@ const api = {
       ipcRenderer.invoke('review:get-snapshot', workspaceId) as Promise<PreloadReviewSnapshot>,
     getFilePatch: (workspaceId: string, filePath: string) =>
       ipcRenderer.invoke('review:get-file-patch', workspaceId, filePath) as Promise<PreloadReviewPatch>,
+  },
+  plan: {
+    getSnapshot: (workspaceId: string, options?: PreloadPlanSnapshotOptions) =>
+      ipcRenderer.invoke('plan:get-snapshot', workspaceId, options) as Promise<PreloadPlanSnapshot | null>,
+    getActiveSurfaceIds: () => ipcRenderer.invoke('plan:get-active-surface-ids') as Promise<string[]>,
+    onActiveSurfacesChange: (cb: (surfaceIds: string[]) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, surfaceIds: string[]) => cb(surfaceIds)
+      ipcRenderer.on('plan:active-surfaces-changed', handler)
+      return () => {
+        ipcRenderer.removeListener('plan:active-surfaces-changed', handler)
+      }
+    },
   },
   status: {
     onChange: (cb: (statuses: Record<string, PreloadHookSurfaceStatus>) => void) => {

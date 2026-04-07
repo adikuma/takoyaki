@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { version as appVersion } from '../../package.json'
 
 type PtyDataCallback = (data: string) => void
 type PtyExitCallback = (event: { exitCode: number; signal?: number }) => void
@@ -67,7 +68,7 @@ describe('RpcHandler', () => {
   beforeEach(() => {
     terminals = new TerminalManager()
     workspaces = new WorkspaceManager(terminals)
-    rpc = new RpcHandler(workspaces, terminals)
+    rpc = new RpcHandler(workspaces, terminals, appVersion)
   })
 
   describe('v1 text protocol', () => {
@@ -88,7 +89,9 @@ describe('RpcHandler', () => {
     it('returns capabilities', () => {
       const res = rpc.handleV2({ id: 1, method: 'system.capabilities' })
       expect(res.ok).toBe(true)
-      expect(expectCapabilitiesResult(res.result).name).toBe('takoyaki')
+      const capabilities = expectCapabilitiesResult(res.result)
+      expect(capabilities.name).toBe('takoyaki')
+      expect(capabilities.version).toBe(appVersion)
     })
 
     it('creates a workspace', () => {
