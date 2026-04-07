@@ -1,0 +1,28 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/).
+
+Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
+
+## [0.1.0] - 2026-04-07
+
+### Added
+- Multi-project workspaces
+- Split panes
+- Git worktree tasks
+- Review mode
+- Unified diff viewer
+- Pinned projects
+- Claude Code hooks
+- Editor integration
+- Dark and light themes
+- Session persistence
+
+### Changed
+- Reset the public release history to a single clean `v0.1.0` starting point
+
+### Fixed
+- Improved terminal resizing, focus behavior, and scrolling on Windows
+- Plain folders now open cleanly without git and can upgrade in place after `git init`

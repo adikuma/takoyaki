@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Takoyaki</title>
+  <link rel="icon" type="image/svg+xml" href="assets/takoyaki-logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+
+    /* light theme */
+    :root {
+      --bg: #f5f5f0;
+      --text: #1c1917;
+      --text-sub: #78716c;
+      --text-ghost: #a8a29e;
+      --border: rgba(0,0,0,0.08);
+      --grid: rgba(0,0,0,0.04);
+      --btn-bg: #1c1917;
+      --btn-text: #f5f5f0;
+      --card-bg: #fff;
+      --card-border: rgba(0,0,0,0.1);
+      --card-shadow: rgba(0,0,0,0.06);
+      --chonker-bg: #fff9ed;
+      --chonker-text: #92400e;
+      --chonker-accent: rgba(245,158,11,0.4);
+    }
+
+    /* dark theme */
+    [data-theme="dark"] {
+      --bg: #0a0a0a;
+      --text: #e8e6e3;
+      --text-sub: #8a8784;
+      --text-ghost: #57534e;
+      --border: rgba(255,255,255,0.08);
+      --grid: rgba(255,255,255,0.025);
+      --btn-bg: #e8e6e3;
+      --btn-text: #0a0a0a;
+      --card-bg: #0d0d0c;
+      --card-border: rgba(255,255,255,0.1);
+      --card-shadow: rgba(255,255,255,0.02);
+      --chonker-bg: #1a1408;
+      --chonker-text: #d97706;
+      --chonker-accent: rgba(245,158,11,0.35);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      transition: background 300ms, color 300ms;
+    }
+
+    /* grid background with fade */
+    .grid-bg {
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+      mask-image: linear-gradient(to bottom, transparent, black 20%, black 35%, transparent 80%);
+      -webkit-mask-image: linear-gradient(to bottom, transparent, black 20%, black 35%, transparent 80%);
+    }
+
+    /* layout */
+    .page {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      z-index: 1;
+      overflow-x: clip;
+      overflow-y: hidden;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+      position: relative;
+    }
+
+    /* nav */
+    nav {
+      padding: clamp(8px, 1.2vh, 12px) clamp(14px, 2vw, 20px);
+      margin: clamp(10px, 1.5vh, 16px) auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 5;
+      max-width: 960px;
+      width: calc(100% - 32px);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: clamp(8px, 0.8vw, 10px);
+      font-size: clamp(15px, 1.3vw, 18px);
+      font-weight: 400;
+      color: var(--text);
+      text-decoration: none;
+      letter-spacing: -0.01em;
+    }
+    .logo img {
+      width: clamp(22px, 2vw, 28px);
+      height: clamp(22px, 2vw, 28px);
+      transition: filter 400ms;
+    }
+    [data-theme="dark"] .logo img { filter: invert(1); }
+
+    .nav-right { display: flex; align-items: center; gap: 0; }
+
+    .nav-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-ghost);
+      text-decoration: none;
+      font-size: clamp(12px, 1vw, 14px);
+      font-weight: 500;
+      padding: clamp(6px, 0.6vw, 8px) clamp(6px, 0.8vw, 10px);
+      border-radius: 7px;
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      transition: color 150ms;
+      font-family: inherit;
+    }
+    .nav-btn:hover { color: var(--text); }
+    .nav-btn svg { width: clamp(13px, 1.2vw, 16px); height: clamp(13px, 1.2vw, 16px); }
+
+    .icon-sun, .icon-moon { display: none; }
+    :root .icon-moon { display: block; }
+    [data-theme="dark"] .icon-moon { display: none; }
+    [data-theme="dark"] .icon-sun { display: block; }
+
+    /* hero content */
+    .content {
+      flex-shrink: 0;
+      text-align: center;
+      padding: 0 clamp(20px, 4vw, 40px);
+      position: relative;
+      z-index: 3;
+    }
+
+    .content h1 {
+      font-family: 'EB Garamond', Georgia, serif;
+      font-size: clamp(28px, 3.6vw, 48px);
+      font-weight: 400;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      margin-bottom: clamp(8px, 1.2vh, 14px);
+    }
+    .content h1 em { font-style: italic; font-weight: 500; }
+
+    .content .subtitle {
+      font-size: clamp(13px, 1.2vw, 16px);
+      color: var(--text-sub);
+      margin-bottom: clamp(16px, 2.5vh, 28px);
+    }
+
+    .dl-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: clamp(6px, 0.6vw, 8px);
+      padding: clamp(10px, 1vh, 13px) clamp(20px, 2vw, 28px);
+      border-radius: 6px;
+      background: var(--btn-bg);
+      color: var(--btn-text);
+      font-size: clamp(12px, 1vw, 14px);
+      font-weight: 500;
+      text-decoration: none;
+      font-family: inherit;
+      transition: opacity 150ms;
+    }
+    .dl-btn:hover { opacity: 0.85; }
+    .dl-btn svg { width: 12px; height: 12px; }
+    .dl-btn { margin-bottom: clamp(16px, 3vh, 32px); }
+
+    .platform-note {
+      margin-bottom: clamp(12px, 1.8vh, 18px);
+      font-size: clamp(9px, 0.72vw, 10px);
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--text-sub);
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 11px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 100px;
+      box-shadow: 0 1px 3px var(--card-shadow);
+    }
+    .platform-note::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: #14b8a6;
+      flex-shrink: 0;
+    }
+
+    /* screenshot area */
+    .hero-image {
+      flex-shrink: 0;
+      display: flex;
+      justify-content: center;
+      padding: clamp(16px, 2vh, 24px) clamp(20px, 4vw, 40px) 0;
+      position: relative;
+    }
+
+    .hero-container {
+      position: relative;
+      width: clamp(300px, 70vw, 940px);
+    }
+
+    .shot-wrap {
+      width: 100%;
+      transition: transform 200ms ease-out;
+      position: relative;
+      z-index: 1;
+      mask-image: linear-gradient(to bottom, black 50%, transparent 85%);
+      -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 85%);
+    }
+    .shot {
+      width: 100%;
+      border-radius: 12px 12px 0 0;
+      border: 1.5px solid var(--border);
+      border-bottom: none;
+      overflow: hidden;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.04), 0 12px 32px rgba(0,0,0,0.06);
+    }
+    .shot img { display: block; width: 100%; }
+
+    #shot-light, #shot-dark { display: none; }
+    :root #shot-light { display: block; }
+    [data-theme="dark"] #shot-light { display: none; }
+    [data-theme="dark"] #shot-dark { display: block; }
+
+    /* feature cards */
+    .feat-card {
+      position: absolute;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: clamp(5px, 0.5vw, 7px);
+      padding: clamp(7px, 0.8vw, 10px) clamp(12px, 1.2vw, 16px);
+      border-radius: 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      box-shadow: 0 1px 3px var(--card-shadow), 0 4px 12px var(--card-shadow);
+      font-size: clamp(10px, 1vw, 12.5px);
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--text-sub);
+      white-space: nowrap;
+      transition: transform 300ms ease, box-shadow 300ms ease;
+    }
+    .feat-card:hover {
+      box-shadow: 0 8px 28px var(--card-shadow), 0 2px 6px var(--card-shadow);
+    }
+    .feat-card svg {
+      width: clamp(10px, 1vw, 13px);
+      height: clamp(10px, 1vw, 13px);
+      flex-shrink: 0;
+    }
+
+    /* card icon colors */
+    .feat-card:nth-child(1) svg { stroke: #3b82f6; }
+    .feat-card:nth-child(2) svg { stroke: #f59e0b; }
+    .feat-card:nth-child(3) svg { stroke: #8b5cf6; }
+    .feat-card:nth-child(4) svg { stroke: #10b981; }
+    .feat-card:nth-child(5) svg { stroke: #ef4444; }
+    .feat-card:nth-child(6) svg { stroke: #f59e0b; }
+    .feat-card:nth-child(7) svg { stroke: #14b8a6; }
+
+    /* card positions */
+    .feat-card:nth-child(1) { left: clamp(-40px, -4.5vw, -60px);   top: -2%;  transform: rotate(-2deg); }
+    .feat-card:nth-child(2) { right: clamp(-60px, -7vw, -100px);   top: 10%;  transform: rotate(1.5deg); }
+    .feat-card:nth-child(3) { left: clamp(-110px, -10vw, -170px);  top: 34%;  transform: rotate(2.5deg); }
+    .feat-card:nth-child(4) { right: clamp(-100px, -11vw, -170px); top: 32%;  transform: rotate(-3deg); }
+    .feat-card:nth-child(5) { left: clamp(-40px, -5vw, -70px);     top: 62%;  transform: rotate(-3deg); }
+    .feat-card:nth-child(6) { right: clamp(-60px, -7vw, -100px);   top: 68%;  transform: rotate(2deg); }
+    .feat-card:nth-child(7) { right: clamp(-82px, -9vw, -132px); top: 56%; transform: rotate(6deg); }
+
+    /* card hover */
+    .feat-card:nth-child(1):hover { transform: rotate(-2deg) translateY(-2px); z-index: 10; }
+    .feat-card:nth-child(2):hover { transform: rotate(1.5deg) translateY(-2px); z-index: 10; }
+    .feat-card:nth-child(3):hover { transform: rotate(2.5deg) translateY(-2px); z-index: 10; }
+    .feat-card:nth-child(4):hover { transform: rotate(-3deg) translateY(-2px); z-index: 10; }
+    .feat-card:nth-child(5):hover { transform: rotate(-3deg) translateY(-2px); z-index: 10; }
+    .feat-card:nth-child(6):hover { transform: rotate(2deg) translateY(-2px); z-index: 10; }
+    .feat-card:nth-child(7):hover { transform: rotate(6deg) translateY(-2px); z-index: 10; }
+
+    /* chonker card */
+    .chonker-card {
+      position: absolute;
+      top: 74%;
+      left: 20%;
+      z-index: 5;
+    }
+    .chonker-card a {
+      display: flex;
+      align-items: center;
+      gap: clamp(5px, 0.5vw, 7px);
+      padding: clamp(7px, 0.8vw, 9px) clamp(12px, 1.2vw, 16px);
+      border-radius: 10px;
+      background: var(--chonker-bg);
+      border: 1.5px dashed var(--chonker-accent);
+      box-shadow: 0 1px 3px var(--card-shadow), 0 4px 12px var(--card-shadow);
+      text-decoration: none;
+      transition: transform 200ms;
+      font-size: clamp(10px, 0.9vw, 11.5px);
+      font-weight: 500;
+      color: var(--chonker-text);
+      letter-spacing: -0.01em;
+    }
+    .chonker-card a:hover { transform: translateY(-2px); }
+    .chonker-card a svg {
+      width: clamp(9px, 0.9vw, 12px);
+      height: clamp(9px, 0.9vw, 12px);
+      opacity: 0.5;
+    }
+
+    /* mobile */
+    @media (max-width: 850px) {
+      html, body { height: auto; overflow: auto; }
+      .page { height: auto; min-height: 100vh; overflow: visible; }
+      .main { overflow: visible; }
+      .feat-card, .chonker-card { display: none; }
+
+      .content { padding: 24px 24px 0; }
+      nav { padding: 14px 20px; }
+
+      .hero-image { padding: 20px 0 0; overflow: hidden; }
+      .hero-container { width: 100%; }
+
+      .shot {
+        border-radius: 10px 10px 0 0;
+        border: 1px solid var(--border);
+        border-bottom: none;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.06);
+        overflow: hidden;
+      }
+      .shot img {
+        transform: scale(1.3);
+        transform-origin: top left;
+      }
+    }
+
+    @media (max-width: 400px) {
+      .content { padding: 16px 16px 0; }
+      nav { padding: 12px 16px; }
+      .dl-btn { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="page">
+    <nav>
+      <a href="/" class="logo">
+        <img src="assets/takoyaki-logo.svg" alt="">
+        <span>Takoyaki</span>
+      </a>
+      <div class="nav-right">
+        <a href="https://github.com/adikuma/takoyaki" class="nav-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          Source
+        </a>
+        <button class="nav-btn" onclick="toggleTheme()" aria-label="toggle theme">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </nav>
+
+    <div class="main">
+      <div class="content">
+        <div class="platform-note">Version 0.1.0</div>
+        <h1>I got jealous of<br>Mac users, so I built <em>this</em></h1>
+        <p class="subtitle">A terminal multiplexer for coding agents</p>
+        <a href="https://github.com/adikuma/takoyaki/releases" class="dl-btn">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+          Download for Windows
+        </a>
+      </div>
+
+      <div class="hero-image">
+        <div class="hero-container">
+          <div class="feat-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+            split panes
+          </div>
+          <div class="feat-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            live agent status
+          </div>
+          <div class="feat-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+            git worktree tasks
+          </div>
+          <div class="feat-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            editor integration
+          </div>
+          <div class="feat-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            session persistence
+          </div>
+          <div class="feat-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            dark + light themes
+          </div>
+          <div class="feat-card">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/><line x1="6.5" y1="8" x2="6.5" y2="12"/><line x1="4.5" y1="10" x2="8.5" y2="10"/><line x1="16" y1="14" x2="19" y2="14"/></svg>
+            diff review
+          </div>
+
+          <div class="chonker-card">
+            <a href="https://github.com/adikuma/chonker" target="_blank">
+              <span style="font-size: clamp(12px, 1.1vw, 14px);">🐡</span>
+              <span>claude usage? try <strong style="color: var(--text);">chonker</strong></span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M7 17L17 7M17 7H7M17 7v10"/></svg>
+            </a>
+          </div>
+
+          <div class="shot-wrap">
+            <div class="shot">
+              <img id="shot-light" src="assets/takoyaki-hero-light.png" alt="Takoyaki">
+              <img id="shot-dark" src="assets/takoyaki-hero.png" alt="Takoyaki">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function toggleTheme() {
+      const isDark = document.documentElement.dataset.theme === 'dark'
+      document.documentElement.dataset.theme = isDark ? '' : 'dark'
+      localStorage.setItem('site-theme', isDark ? 'light' : 'dark')
+    }
+    const saved = localStorage.getItem('site-theme')
+    if (saved === 'dark') document.documentElement.dataset.theme = 'dark'
+
+    // parallax only on non touch devices
+    if (!('ontouchstart' in window)) {
+      const shot = document.querySelector('.shot-wrap')
+      document.addEventListener('mousemove', (e) => {
+        const x = (e.clientX / window.innerWidth - 0.5) * 4
+        const y = (e.clientY / window.innerHeight - 0.5) * 2
+        shot.style.transform = `perspective(1200px) rotateY(${x}deg) rotateX(${-y}deg)`
+      })
+    }
+  </script>
+</body>
+</html>
