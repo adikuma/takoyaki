@@ -1,0 +1,22 @@
+node_modules/
+out/
+dist/
+.superpowers/
+.env*.local
+*.log
+_upstream/
+.DS_Store
+Thumbs.db
+.claude/
+*.tsbuildinfo
+vitest.config.js
+vitest.config.d.ts
+release/
+src/__tests__/*.js
+src/__tests__/*.d.ts
+
+# opensrc - source code for packages
+opensrc/
+NOTES.md
+.tmp-editor-home/
+.tmp-worktree-home/
