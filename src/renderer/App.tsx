@@ -414,7 +414,9 @@ export function App() {
         ) : (
           <EmptyState />
         )}
-        {activeView === 'terminal' && activeWorkspace && !tree && <EmptyWorkspaceToolbar workspaceId={activeWorkspace.id} />}
+        {activeView === 'terminal' && activeWorkspace && !tree && (
+          <EmptyWorkspaceToolbar workspaceId={activeWorkspace.id} />
+        )}
         {/* keep the live terminals mounted above the layout and only update their frame */}
         <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
           {terminalViews.map((terminal) => {

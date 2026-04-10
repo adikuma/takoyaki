@@ -809,7 +809,10 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                     </div>
                     <div className="flex items-start gap-2.5" style={{ flex: 1, minWidth: 0, padding: '8px 10px' }}>
                       <div className="mt-0.5 flex-shrink-0">
-                        <GitBranchIcon size={sizes.iconSm} color={taskSelected ? colors.accentSoft : colors.textMuted} />
+                        <GitBranchIcon
+                          size={sizes.iconSm}
+                          color={taskSelected ? colors.accentSoft : colors.textMuted}
+                        />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">

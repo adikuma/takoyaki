@@ -87,7 +87,7 @@ export function getTerminalTheme(mode: 'dark' | 'light') {
     return {
       background: '#ffffff',
       foreground: '#1c1917',
-      cursor: '#ffffff',
+      cursor: '#d97706',
       cursorAccent: '#ffffff',
       selectionBackground: 'rgba(217, 119, 6, 0.15)',
       selectionForeground: undefined,
@@ -113,7 +113,7 @@ export function getTerminalTheme(mode: 'dark' | 'light') {
   return {
     background: '#0a0a0b',
     foreground: '#d6d3d1',
-    cursor: '#0a0a0b',
+    cursor: '#f59e0b',
     cursorAccent: '#0a0a0b',
     selectionBackground: 'rgba(245, 158, 11, 0.12)',
     selectionForeground: undefined,

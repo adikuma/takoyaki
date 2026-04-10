@@ -155,10 +155,6 @@
   display: none !important;
 }
 
-.takoyaki-pane-alt .xterm-cursor {
-  opacity: 0 !important;
-}
-
 .takoyaki-input::placeholder {
   color: var(--takoyaki-text-ghost);
 }

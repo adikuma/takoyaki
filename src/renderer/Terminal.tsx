@@ -82,7 +82,7 @@ function PaneToolbarButton({
     <Tooltip content={label} side="bottom">
       <button
         type="button"
-        className="flex h-7 w-7 items-center justify-center"
+        className="flex h-6 w-6 items-center justify-center"
         style={{
           background: 'transparent',
           border: 'none',
@@ -571,16 +571,13 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
       {isVisible && (
         <div
-          className="absolute right-2 top-2 z-[4] flex items-center gap-1 opacity-0 transition-opacity duration-[100ms] group-hover:opacity-100 group-focus-within:opacity-100"
-          style={{ pointerEvents: 'auto' }}
+          className="shrink-0 flex items-center justify-end px-2 py-1"
+          style={{
+            minHeight: 30,
+            background: colors.terminalBg,
+          }}
         >
-          <div
-            className="flex items-center gap-1 p-1"
-            style={{
-              ...button.base,
-              borderRadius: sizes.radiusMd,
-            }}
-          >
+          <div className="inline-flex items-center gap-0.5" onMouseDown={(event) => event.stopPropagation()}>
             <PaneToolbarButton label="Split right" onClick={handleSplitRight}>
               <Columns2 size={sizes.iconSm} strokeWidth={1.8} />
             </PaneToolbarButton>

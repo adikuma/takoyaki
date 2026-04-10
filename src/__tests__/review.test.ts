@@ -7,6 +7,7 @@ import { ReviewService } from '../main/review'
 import type { Workspace } from '../main/workspace'
 
 const tempRoots: string[] = []
+const REVIEW_TEST_TIMEOUT_MS = 30_000
 
 function runGit(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], {
@@ -58,157 +59,185 @@ afterEach(() => {
 })
 
 describe('ReviewService', () => {
-  it('reports staged and unstaged changes together against HEAD', async () => {
-    const repoRoot = createRepo()
-    writeFile(repoRoot, 'src/app.ts', 'console.log("one")\n')
-    commitAll(repoRoot, 'init')
+  it(
+    'reports staged and unstaged changes together against HEAD',
+    async () => {
+      const repoRoot = createRepo()
+      writeFile(repoRoot, 'src/app.ts', 'console.log("one")\n')
+      commitAll(repoRoot, 'init')
 
-    writeFile(repoRoot, 'src/app.ts', 'console.log("two")\n')
-    runGit(repoRoot, ['add', 'src/app.ts'])
-    writeFile(repoRoot, 'src/app.ts', 'console.log("three")\n')
+      writeFile(repoRoot, 'src/app.ts', 'console.log("two")\n')
+      runGit(repoRoot, ['add', 'src/app.ts'])
+      writeFile(repoRoot, 'src/app.ts', 'console.log("three")\n')
 
-    const service = new ReviewService()
-    const snapshot = await service.getSnapshot(createWorkspace(repoRoot))
+      const service = new ReviewService()
+      const snapshot = await service.getSnapshot(createWorkspace(repoRoot))
 
-    expect(snapshot.files).toEqual([
-      expect.objectContaining({
-        path: 'src/app.ts',
-        status: 'modified',
-        stagedStatus: 'M',
-        unstagedStatus: 'M',
-      }),
-    ])
-  })
+      expect(snapshot.files).toEqual([
+        expect.objectContaining({
+          path: 'src/app.ts',
+          status: 'modified',
+          stagedStatus: 'M',
+          unstagedStatus: 'M',
+        }),
+      ])
+    },
+    REVIEW_TEST_TIMEOUT_MS,
+  )
 
-  it('returns a synthesized added-file patch for untracked files', async () => {
-    const repoRoot = createRepo()
-    writeFile(repoRoot, 'README.md', '# repo\n')
-    commitAll(repoRoot, 'init')
-    writeFile(repoRoot, 'notes/todo.txt', 'ship review mode\n')
+  it(
+    'returns a synthesized added-file patch for untracked files',
+    async () => {
+      const repoRoot = createRepo()
+      writeFile(repoRoot, 'README.md', '# repo\n')
+      commitAll(repoRoot, 'init')
+      writeFile(repoRoot, 'notes/todo.txt', 'ship review mode\n')
 
-    const service = new ReviewService()
-    const workspace = createWorkspace(repoRoot)
-    const snapshot = await service.getSnapshot(workspace)
-    const patch = await service.getFilePatch(workspace, 'notes/todo.txt')
+      const service = new ReviewService()
+      const workspace = createWorkspace(repoRoot)
+      const snapshot = await service.getSnapshot(workspace)
+      const patch = await service.getFilePatch(workspace, 'notes/todo.txt')
 
-    expect(snapshot.files).toEqual([
-      expect.objectContaining({
-        path: 'notes/todo.txt',
-        status: 'untracked',
-      }),
-    ])
-    expect(patch.renderMode).toBe('text')
-    expect(patch.patch).toContain('+++ b/notes/todo.txt')
-    expect(patch.patch).toContain('+ship review mode')
-  })
+      expect(snapshot.files).toEqual([
+        expect.objectContaining({
+          path: 'notes/todo.txt',
+          status: 'untracked',
+        }),
+      ])
+      expect(patch.renderMode).toBe('text')
+      expect(patch.patch).toContain('+++ b/notes/todo.txt')
+      expect(patch.patch).toContain('+ship review mode')
+    },
+    REVIEW_TEST_TIMEOUT_MS,
+  )
 
-  it('marks deleted tracked files as deleted', async () => {
-    const repoRoot = createRepo()
-    writeFile(repoRoot, 'src/old.ts', 'export const oldValue = true\n')
-    commitAll(repoRoot, 'init')
-    fs.rmSync(path.join(repoRoot, 'src', 'old.ts'))
+  it(
+    'marks deleted tracked files as deleted',
+    async () => {
+      const repoRoot = createRepo()
+      writeFile(repoRoot, 'src/old.ts', 'export const oldValue = true\n')
+      commitAll(repoRoot, 'init')
+      fs.rmSync(path.join(repoRoot, 'src', 'old.ts'))
 
-    const service = new ReviewService()
-    const workspace = createWorkspace(repoRoot)
-    const snapshot = await service.getSnapshot(workspace)
-    const patch = await service.getFilePatch(workspace, 'src/old.ts')
+      const service = new ReviewService()
+      const workspace = createWorkspace(repoRoot)
+      const snapshot = await service.getSnapshot(workspace)
+      const patch = await service.getFilePatch(workspace, 'src/old.ts')
 
-    expect(snapshot.files).toEqual([
-      expect.objectContaining({
-        path: 'src/old.ts',
-        status: 'deleted',
-      }),
-    ])
-    expect(patch.renderMode).toBe('text')
-    expect(patch.patch).toContain('deleted file mode')
-  })
+      expect(snapshot.files).toEqual([
+        expect.objectContaining({
+          path: 'src/old.ts',
+          status: 'deleted',
+        }),
+      ])
+      expect(patch.renderMode).toBe('text')
+      expect(patch.patch).toContain('deleted file mode')
+    },
+    REVIEW_TEST_TIMEOUT_MS,
+  )
 
-  it('tracks renamed files with previous paths', async () => {
-    const repoRoot = createRepo()
-    writeFile(repoRoot, 'src/old-name.ts', 'export const value = 1\n')
-    commitAll(repoRoot, 'init')
-    runGit(repoRoot, ['mv', 'src/old-name.ts', 'src/new-name.ts'])
+  it(
+    'tracks renamed files with previous paths',
+    async () => {
+      const repoRoot = createRepo()
+      writeFile(repoRoot, 'src/old-name.ts', 'export const value = 1\n')
+      commitAll(repoRoot, 'init')
+      runGit(repoRoot, ['mv', 'src/old-name.ts', 'src/new-name.ts'])
 
-    const service = new ReviewService()
-    const workspace = createWorkspace(repoRoot)
-    const snapshot = await service.getSnapshot(workspace)
-    const patch = await service.getFilePatch(workspace, 'src/new-name.ts')
+      const service = new ReviewService()
+      const workspace = createWorkspace(repoRoot)
+      const snapshot = await service.getSnapshot(workspace)
+      const patch = await service.getFilePatch(workspace, 'src/new-name.ts')
 
-    expect(snapshot.files).toEqual([
-      expect.objectContaining({
-        path: 'src/new-name.ts',
-        previousPath: 'src/old-name.ts',
-        status: 'renamed',
-      }),
-    ])
-    expect(patch.renderMode).toBe('text')
-    expect(patch.patch).toContain('rename from src/old-name.ts')
-    expect(patch.patch).toContain('rename to src/new-name.ts')
-  })
+      expect(snapshot.files).toEqual([
+        expect.objectContaining({
+          path: 'src/new-name.ts',
+          previousPath: 'src/old-name.ts',
+          status: 'renamed',
+        }),
+      ])
+      expect(patch.renderMode).toBe('text')
+      expect(patch.patch).toContain('rename from src/old-name.ts')
+      expect(patch.patch).toContain('rename to src/new-name.ts')
+    },
+    REVIEW_TEST_TIMEOUT_MS,
+  )
 
-  it('limits project review to the selected subtree', async () => {
-    const repoRoot = createRepo()
-    writeFile(repoRoot, 'server/app.ts', 'server\n')
-    writeFile(repoRoot, 'client/app.ts', 'client\n')
-    commitAll(repoRoot, 'init')
-    writeFile(repoRoot, 'server/app.ts', 'server changed\n')
-    writeFile(repoRoot, 'client/app.ts', 'client changed\n')
-
-    const service = new ReviewService()
-    const snapshot = await service.getSnapshot(
-      createWorkspace(repoRoot, {
-        workingDirectory: path.join(repoRoot, 'server'),
-      }),
-    )
-
-    expect(snapshot.scopePath).toBe('server')
-    expect(snapshot.files).toHaveLength(1)
-    expect(snapshot.files[0].path).toBe('server/app.ts')
-  })
-
-  it('keeps subtree scope when the workspace uses an alternate path to the same repo', async () => {
-    const repoRoot = createRepo()
-    writeFile(repoRoot, 'server/app.ts', 'server\n')
-    writeFile(repoRoot, 'client/app.ts', 'client\n')
-    commitAll(repoRoot, 'init')
-    writeFile(repoRoot, 'server/app.ts', 'server changed\n')
-    writeFile(repoRoot, 'client/app.ts', 'client changed\n')
-
-    const aliasRoot = path.join(path.dirname(repoRoot), `${path.basename(repoRoot)}-alias`)
-    tempRoots.push(aliasRoot)
-
-    try {
-      fs.symlinkSync(repoRoot, aliasRoot, process.platform === 'win32' ? 'junction' : 'dir')
+  it(
+    'limits project review to the selected subtree',
+    async () => {
+      const repoRoot = createRepo()
+      writeFile(repoRoot, 'server/app.ts', 'server\n')
+      writeFile(repoRoot, 'client/app.ts', 'client\n')
+      commitAll(repoRoot, 'init')
+      writeFile(repoRoot, 'server/app.ts', 'server changed\n')
+      writeFile(repoRoot, 'client/app.ts', 'client changed\n')
 
       const service = new ReviewService()
       const snapshot = await service.getSnapshot(
         createWorkspace(repoRoot, {
-          projectRoot: aliasRoot,
-          workingDirectory: path.join(aliasRoot, 'server'),
+          workingDirectory: path.join(repoRoot, 'server'),
         }),
       )
 
       expect(snapshot.scopePath).toBe('server')
       expect(snapshot.files).toHaveLength(1)
       expect(snapshot.files[0].path).toBe('server/app.ts')
-    } finally {
-      fs.rmSync(aliasRoot, { recursive: true, force: true })
-    }
-  })
+    },
+    REVIEW_TEST_TIMEOUT_MS,
+  )
 
-  it('returns binary placeholders instead of inline patches', async () => {
-    const repoRoot = createRepo()
-    writeFile(repoRoot, 'assets/logo.bin', Buffer.from([1, 2, 3, 4, 5]))
-    commitAll(repoRoot, 'init')
-    writeFile(repoRoot, 'assets/logo.bin', Buffer.from([0, 1, 2, 3, 4, 5]))
+  it(
+    'keeps subtree scope when the workspace uses an alternate path to the same repo',
+    async () => {
+      const repoRoot = createRepo()
+      writeFile(repoRoot, 'server/app.ts', 'server\n')
+      writeFile(repoRoot, 'client/app.ts', 'client\n')
+      commitAll(repoRoot, 'init')
+      writeFile(repoRoot, 'server/app.ts', 'server changed\n')
+      writeFile(repoRoot, 'client/app.ts', 'client changed\n')
 
-    const service = new ReviewService()
-    const workspace = createWorkspace(repoRoot)
-    const patch = await service.getFilePatch(workspace, 'assets/logo.bin')
+      const aliasRoot = path.join(path.dirname(repoRoot), `${path.basename(repoRoot)}-alias`)
+      tempRoots.push(aliasRoot)
 
-    expect(patch.renderMode).toBe('binary')
-    expect(patch.detail).toContain('Binary file')
-  })
+      try {
+        fs.symlinkSync(repoRoot, aliasRoot, process.platform === 'win32' ? 'junction' : 'dir')
+
+        const service = new ReviewService()
+        const snapshot = await service.getSnapshot(
+          createWorkspace(repoRoot, {
+            projectRoot: aliasRoot,
+            workingDirectory: path.join(aliasRoot, 'server'),
+          }),
+        )
+
+        expect(snapshot.scopePath).toBe('server')
+        expect(snapshot.files).toHaveLength(1)
+        expect(snapshot.files[0].path).toBe('server/app.ts')
+      } finally {
+        fs.rmSync(aliasRoot, { recursive: true, force: true })
+      }
+    },
+    REVIEW_TEST_TIMEOUT_MS,
+  )
+
+  it(
+    'returns binary placeholders instead of inline patches',
+    async () => {
+      const repoRoot = createRepo()
+      writeFile(repoRoot, 'assets/logo.bin', Buffer.from([1, 2, 3, 4, 5]))
+      commitAll(repoRoot, 'init')
+      writeFile(repoRoot, 'assets/logo.bin', Buffer.from([0, 1, 2, 3, 4, 5]))
+
+      const service = new ReviewService()
+      const workspace = createWorkspace(repoRoot)
+      const patch = await service.getFilePatch(workspace, 'assets/logo.bin')
+
+      expect(patch.renderMode).toBe('binary')
+      expect(patch.detail).toContain('Binary file')
+    },
+    REVIEW_TEST_TIMEOUT_MS,
+  )
 
   it('returns a non-reviewable snapshot outside git', async () => {
     const folderPath = fs.mkdtempSync(path.join(os.tmpdir(), 'takoyaki-review-non-git-'))
