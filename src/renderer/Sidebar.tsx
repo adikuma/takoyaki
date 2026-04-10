@@ -823,7 +823,6 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                           >
                             {task.title}
                           </span>
-                          {taskStatus && <StatusGlyph status={taskStatus} />}
                           <RowActionCluster>
                             <RowActionMenu label="Task actions" items={taskMenuItems} />
                           </RowActionCluster>
@@ -836,7 +835,14 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                             marginTop: 2,
                           }}
                         >
-                          task/{task.branchName?.replace('task/', '') || task.title}
+                          <div className="flex items-center gap-1">
+                            <span>task/{task.branchName?.replace('task/', '') || task.title}</span>
+                            {taskStatus && (
+                              <span style={{ marginLeft: 4 }}>
+                                <StatusGlyph status={taskStatus} />
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
