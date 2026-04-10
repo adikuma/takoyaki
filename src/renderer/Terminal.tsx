@@ -13,6 +13,7 @@ import '@xterm/xterm/css/xterm.css'
 let terminalRuntimeInfoPromise: Promise<TerminalRuntimeInfo> | null = null
 const TERMINAL_SCROLL_SENSITIVITY = 2
 const SCROLL_TO_BOTTOM_THRESHOLD = 2
+const TERMINAL_SCROLLBAR_WIDTH = 8
 
 function getTerminalRuntimeInfo(): Promise<TerminalRuntimeInfo> {
   if (!terminalRuntimeInfoPromise) {
@@ -252,6 +253,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
           cursorInactiveStyle: 'none',
           scrollback: 5000,
           scrollSensitivity: TERMINAL_SCROLL_SENSITIVITY,
+          overviewRuler: { width: TERMINAL_SCROLLBAR_WIDTH },
           allowProposedApi: true,
           theme: getTerminalTheme((localStorage.getItem('takoyaki-theme') as 'dark' | 'light') || 'dark'),
           windowsPty: runtimeInfo.windowsPty || undefined,
@@ -310,7 +312,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
         const mountNode = containerRef.current
         mountNode.style.width = '100%'
         mountNode.style.height = '100%'
-        mountNode.style.padding = '8px 10px 4px 10px'
+        mountNode.style.padding = '8px 0 4px 10px'
         term.open(mountNode)
 
         window.addEventListener('takoyaki-theme-changed', onThemeChanged)
