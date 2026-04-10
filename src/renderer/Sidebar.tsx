@@ -351,7 +351,7 @@ function BranchSelect({
             boxShadow: '0 12px 32px rgba(0,0,0,0.22)',
           }}
         >
-          <div style={{ padding: '6px 8px', borderBottom: `1px solid ${colors.borderSubtle}` }}>
+          <div style={{ padding: '6px 8px', borderBottom: `1px solid ${colors.separator}` }}>
             <input
               ref={filterInputRef}
               value={filterQuery}
@@ -781,7 +781,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                           top: 0,
                           height: '50%',
                           width: 1,
-                          background: colors.borderSubtle,
+                          background: colors.separator,
                         }}
                       />
                       <div
@@ -791,7 +791,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                           top: '50%',
                           width: 10,
                           height: 1,
-                          background: colors.borderSubtle,
+                          background: colors.separator,
                         }}
                       />
                       {!isLast && (
@@ -802,7 +802,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                             top: '50%',
                             bottom: 0,
                             width: 1,
-                            background: colors.borderSubtle,
+                            background: colors.separator,
                           }}
                         />
                       )}

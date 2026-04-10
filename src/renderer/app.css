@@ -19,8 +19,8 @@
     --takoyaki-bg-subtle: rgba(255, 255, 255, 0.02);
     --takoyaki-bg-card: rgba(255, 255, 255, 0.015);
 
-    --takoyaki-separator: rgba(255, 255, 255, 0.15);
-    --takoyaki-border-subtle: rgba(255, 255, 255, 0.1);
+    --takoyaki-separator: rgba(255, 255, 255, 0.18);
+    --takoyaki-border-subtle: rgba(255, 255, 255, 0.13);
 
     --takoyaki-text-primary: #f5f5f4;
     --takoyaki-text-secondary: #a8a29e;
@@ -39,8 +39,8 @@
     --takoyaki-diff-hunk-text: #fbbf24;
 
     --takoyaki-btn-bg: #0a0a0b;
-    --takoyaki-btn-ring: rgba(255, 255, 255, 0.08);
-    --takoyaki-btn-ring-hover: rgba(255, 255, 255, 0.12);
+    --takoyaki-btn-ring: rgba(255, 255, 255, 0.11);
+    --takoyaki-btn-ring-hover: rgba(255, 255, 255, 0.16);
     --takoyaki-btn-highlight: rgba(255, 255, 255, 0.04);
 
     --takoyaki-tooltip-bg: #1c1917;
@@ -61,8 +61,8 @@
     --takoyaki-bg-subtle: rgba(0, 0, 0, 0.03);
     --takoyaki-bg-card: rgba(0, 0, 0, 0.03);
 
-    --takoyaki-separator: rgba(0, 0, 0, 0.15);
-    --takoyaki-border-subtle: rgba(0, 0, 0, 0.1);
+    --takoyaki-separator: rgba(0, 0, 0, 0.18);
+    --takoyaki-border-subtle: rgba(0, 0, 0, 0.13);
 
     --takoyaki-text-primary: #1c1917;
     --takoyaki-text-secondary: #44403c;
@@ -81,8 +81,8 @@
     --takoyaki-diff-hunk-text: #a16207;
 
     --takoyaki-btn-bg: #f5f5f4;
-    --takoyaki-btn-ring: rgba(0, 0, 0, 0.12);
-    --takoyaki-btn-ring-hover: rgba(0, 0, 0, 0.2);
+    --takoyaki-btn-ring: rgba(0, 0, 0, 0.15);
+    --takoyaki-btn-ring-hover: rgba(0, 0, 0, 0.24);
     --takoyaki-btn-highlight: rgba(0, 0, 0, 0.04);
 
     --takoyaki-tooltip-bg: #ffffff;
