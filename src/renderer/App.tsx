@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Plus } from 'lucide-react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { useStore } from './store'
 import { Titlebar } from './Titlebar'
@@ -6,7 +7,7 @@ import { Sidebar } from './Sidebar'
 import { Terminal } from './Terminal'
 import { Settings } from './Settings'
 import { Review } from './Review'
-import { colors, fonts } from './design'
+import { button, colors, fonts, sizes } from './design'
 import { collectLeaves, collectWorkspaceTerminals, equalTerminalFrames } from './terminal-layout'
 import type { PaneTree, WorkspaceSnapshot } from './types'
 
@@ -35,6 +36,45 @@ function PaneLayout({ tree }: { tree: PaneTree }) {
 
 function EmptyState() {
   return <div className="flex-1" />
+}
+
+function EmptyWorkspaceToolbar({ workspaceId }: { workspaceId: string }) {
+  return (
+    <div className="absolute right-3 top-3 z-[5] flex items-center" style={{ pointerEvents: 'auto' }}>
+      <button
+        type="button"
+        className="flex items-center gap-1.5 px-2.5 py-1.5"
+        style={{
+          ...button.base,
+          borderRadius: sizes.radiusMd,
+          color: colors.textSecondary,
+          fontFamily: fonts.ui,
+          fontSize: sizes.textSm,
+          fontWeight: 500,
+        }}
+        onClick={() => {
+          void window.takoyaki?.workspace.createPane(workspaceId)
+        }}
+        onMouseEnter={(event) => {
+          Object.assign(event.currentTarget.style, {
+            ...button.hover,
+            borderRadius: `${sizes.radiusMd}px`,
+            color: colors.textPrimary,
+          })
+        }}
+        onMouseLeave={(event) => {
+          Object.assign(event.currentTarget.style, {
+            ...button.base,
+            borderRadius: `${sizes.radiusMd}px`,
+            color: colors.textSecondary,
+          })
+        }}
+      >
+        <Plus size={sizes.iconBase} strokeWidth={1.8} />
+        <span>New pane</span>
+      </button>
+    </div>
+  )
 }
 
 export function App() {
@@ -374,6 +414,7 @@ export function App() {
         ) : (
           <EmptyState />
         )}
+        {activeView === 'terminal' && activeWorkspace && !tree && <EmptyWorkspaceToolbar workspaceId={activeWorkspace.id} />}
         {/* keep the live terminals mounted above the layout and only update their frame */}
         <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
           {terminalViews.map((terminal) => {

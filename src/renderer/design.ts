@@ -73,7 +73,7 @@ export const sizes = {
 
   // icons
   iconSm: 13,
-  iconBase: 15,
+  iconBase: 16,
 
   // border radius
   radiusSm: 5,

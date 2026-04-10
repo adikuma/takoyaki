@@ -348,9 +348,13 @@ describe('WorkspaceManager', () => {
       expect(tree?.type).toBe('leaf')
     })
 
-    it('does not close the last surface', () => {
-      wm.create()
-      expect(wm.closeFocused()).toBe(false)
+    it('closes the last surface and leaves the workspace empty', () => {
+      const ws = wm.create()
+
+      expect(wm.closeFocused()).toBe(true)
+      expect(wm.getTree(ws.id)).toBeNull()
+      expect(wm.current()?.focusedSurfaceId).toBeNull()
+      expect(wm.current()?.paneCount).toBe(0)
     })
 
     it('updates focus to remaining surface', () => {
@@ -359,6 +363,36 @@ describe('WorkspaceManager', () => {
       wm.splitFocused('horizontal')
       wm.closeFocused()
       expect(wm.current()?.focusedSurfaceId).toBe(originalId)
+    })
+  })
+
+  describe('surface actions', () => {
+    it('splits the requested surface directly', () => {
+      const ws = wm.create()
+      const originalId = ws.focusedSurfaceId!
+
+      expect(wm.splitSurface(originalId, 'horizontal')).toBe(true)
+
+      const tree = wm.getTree(ws.id)
+      expect(tree?.type).toBe('split')
+    })
+
+    it('closes the requested surface directly', () => {
+      const ws = wm.create()
+      const originalId = ws.focusedSurfaceId!
+      wm.splitFocused('horizontal')
+
+      expect(wm.closeSurface(originalId)).toBe(true)
+      expect(wm.current()?.paneCount).toBe(1)
+    })
+
+    it('recreates a pane in an empty workspace', () => {
+      const ws = wm.create()
+      wm.closeFocused()
+
+      expect(wm.createPane(ws.id)).toBe(true)
+      expect(wm.getTree(ws.id)?.type).toBe('leaf')
+      expect(wm.current()?.focusedSurfaceId).toBeTruthy()
     })
   })
 
@@ -422,6 +456,22 @@ describe('WorkspaceManager', () => {
       } finally {
         fs.rmSync(taskDir, { recursive: true, force: true })
       }
+    })
+
+    it('persists and restores empty workspaces', () => {
+      const ws = wm.create('project-a', '/workspace/app', '/workspace/app', true)
+      wm.closeFocused()
+
+      wm.save()
+
+      const tm2 = new TerminalManager()
+      const wm2 = new WorkspaceManager(tm2)
+      wm2.load()
+
+      const restored = wm2.get(ws.id)
+      expect(restored?.paneCount).toBe(0)
+      expect(restored?.focusedSurfaceId).toBeNull()
+      expect(wm2.getTree(ws.id)).toBeNull()
     })
   })
 })

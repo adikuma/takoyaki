@@ -241,6 +241,9 @@ declare global {
         cycleVisible: (direction: 'next' | 'prev') => Promise<string | null>
         select: (id: string) => Promise<boolean>
         close: (id: string) => Promise<boolean>
+        createPane: (workspaceId: string) => Promise<boolean>
+        splitSurface: (surfaceId: string, direction: 'horizontal' | 'vertical') => Promise<boolean>
+        closeSurface: (surfaceId: string) => Promise<boolean>
         current: () => Promise<Workspace | null>
         tree: (wsId?: string) => Promise<PaneTree | null>
         onChange: (cb: (snapshot: WorkspaceSnapshot) => void) => () => void

@@ -171,6 +171,10 @@ const api = {
     cycleVisible: (direction: 'next' | 'prev') => ipcRenderer.invoke('workspace:cycle-visible', direction),
     select: (id: string) => ipcRenderer.invoke('workspace:select', id),
     close: (id: string) => ipcRenderer.invoke('workspace:close', id),
+    createPane: (workspaceId: string) => ipcRenderer.invoke('workspace:create-pane', workspaceId),
+    splitSurface: (surfaceId: string, direction: 'horizontal' | 'vertical') =>
+      ipcRenderer.invoke('workspace:split-surface', surfaceId, direction),
+    closeSurface: (surfaceId: string) => ipcRenderer.invoke('workspace:close-surface', surfaceId),
     current: () => ipcRenderer.invoke('workspace:current'),
     tree: (wsId?: string) => ipcRenderer.invoke('workspace:tree', wsId),
     onChange: (cb: (snapshot: PreloadWorkspaceSnapshot) => void) => {

@@ -36,7 +36,7 @@ function FolderIcon({ active }: { active?: boolean }) {
 }
 
 function SearchIcon() {
-  return <Search size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+  return <Search size={sizes.iconSm} strokeWidth={2} style={{ flexShrink: 0 }} />
 }
 
 function Checkmark() {
@@ -56,10 +56,10 @@ function RowActionCluster({ children }: { children: ReactNode }) {
     <div
       className="flex items-center gap-0 shrink-0"
       style={{
-        padding: 2,
+        padding: 0,
         borderRadius: sizes.radiusMd,
-        background: colors.bg,
-        border: `1px solid ${colors.borderSubtle}`,
+        background: 'transparent',
+        border: 'none',
       }}
     >
       {children}
@@ -168,7 +168,7 @@ function RowActionMenu({ label, items }: { label: string; items: RowMenuItem[] }
           setOpen((current) => !current)
         }}
       >
-        <MoreVertical size={12} strokeWidth={1.8} />
+        <MoreVertical size={sizes.iconSm} strokeWidth={1.8} />
       </RowActionButton>
 
       {open && (
@@ -339,7 +339,7 @@ function BranchSelect({
         <span className="truncate text-left" style={{ fontFamily: fonts.mono }}>
           {value || 'Select branch'}
         </span>
-        <ChevronDown size={12} strokeWidth={1.9} color={colors.textMuted} />
+        <ChevronDown size={sizes.iconSm} strokeWidth={1.9} color={colors.textMuted} />
       </button>
 
       {open && !disabled && options.length > 0 && (
@@ -650,7 +650,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
           const projectMenuItems: RowMenuItem[] = [
             {
               label: 'New task',
-              icon: <GitBranchIcon size={12} />,
+              icon: <GitBranchIcon size={sizes.iconSm} />,
               disabled: !gitEnabled,
               hint: !gitEnabled ? 'git required' : undefined,
               onSelect: () => {
@@ -660,7 +660,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
             },
             {
               label: 'Open in review',
-              icon: <Diff size={12} strokeWidth={1.8} />,
+              icon: <Diff size={sizes.iconSm} strokeWidth={1.8} />,
               disabled: !gitEnabled,
               hint: !gitEnabled ? 'git required' : undefined,
               onSelect: () => {
@@ -671,14 +671,14 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
             },
             {
               label: 'Open in editor',
-              icon: <ArrowUpRight size={12} strokeWidth={1.8} />,
+              icon: <ArrowUpRight size={sizes.iconSm} strokeWidth={1.8} />,
               onSelect: () => {
                 void openInEditor(ws.id)
               },
             },
             {
               label: 'Close project',
-              icon: <Trash2 size={12} strokeWidth={1.8} />,
+              icon: <Trash2 size={sizes.iconSm} strokeWidth={1.8} />,
               danger: true,
               onSelect: () => {
                 setConfirmClose({ id: ws.id, title: ws.title })
@@ -714,7 +714,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                               void togglePinnedProject(projectRoot)
                             }}
                           >
-                            <Pin size={12} strokeWidth={1.8} />
+                            <Pin size={sizes.iconSm} strokeWidth={1.8} />
                           </RowActionButton>
                         )}
                         <RowActionMenu label="Project actions" items={projectMenuItems} />
@@ -742,7 +742,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                 const taskMenuItems: RowMenuItem[] = [
                   {
                     label: 'Open in review',
-                    icon: <Diff size={12} strokeWidth={1.8} />,
+                    icon: <Diff size={sizes.iconSm} strokeWidth={1.8} />,
                     onSelect: () => {
                       void openReview(task.id)
                       if (narrow) onRequestClose?.()
@@ -750,14 +750,14 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                   },
                   {
                     label: 'Open in editor',
-                    icon: <ArrowUpRight size={12} strokeWidth={1.8} />,
+                    icon: <ArrowUpRight size={sizes.iconSm} strokeWidth={1.8} />,
                     onSelect: () => {
                       void openInEditor(task.id)
                     },
                   },
                   {
                     label: 'Remove task',
-                    icon: <Trash2 size={12} strokeWidth={1.8} />,
+                    icon: <Trash2 size={sizes.iconSm} strokeWidth={1.8} />,
                     danger: true,
                     onSelect: () => {
                       setConfirmRemoveTask({ id: task.id, title: task.title, force: false })
@@ -809,7 +809,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                     </div>
                     <div className="flex items-start gap-2.5" style={{ flex: 1, minWidth: 0, padding: '8px 10px' }}>
                       <div className="mt-0.5 flex-shrink-0">
-                        <GitBranchIcon size={13} color={taskSelected ? colors.accentSoft : colors.textMuted} />
+                        <GitBranchIcon size={sizes.iconSm} color={taskSelected ? colors.accentSoft : colors.textMuted} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
@@ -939,7 +939,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
               className="flex items-center gap-2"
               style={{ padding: '8px 10px', borderRadius: 8, background: colors.bgInput, color: colors.textMuted }}
             >
-              <GitBranchIcon size={13} />
+              <GitBranchIcon size={sizes.iconSm} />
               <input
                 ref={taskTitleRef}
                 value={taskTitle}

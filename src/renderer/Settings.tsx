@@ -14,12 +14,12 @@ interface Props {
   onClose: () => void
 }
 
-// renders an editor logo svg inline at 14x14
+// renders an editor logo svg inline using the shared base icon size
 function ProviderIcon({ svg, color = colors.textSecondary }: { svg: string; color?: string }) {
   return (
     <span
-      className="inline-flex h-[14px] w-[14px] items-center justify-center"
-      style={{ color }}
+      className="inline-flex items-center justify-center"
+      style={{ color, width: sizes.iconBase, height: sizes.iconBase }}
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   )
@@ -27,7 +27,7 @@ function ProviderIcon({ svg, color = colors.textSecondary }: { svg: string; colo
 
 // file explorer uses a lucide icon instead of a bundled svg
 function ExplorerIcon({ color = colors.textSecondary }: { color?: string }) {
-  return <FolderOpen size={14} strokeWidth={1.9} color={color} />
+  return <FolderOpen size={sizes.iconBase} strokeWidth={1.9} color={color} />
 }
 
 function Checkmark() {
@@ -204,7 +204,7 @@ export function Settings({ open, onClose }: Props) {
                   {editorOptions.find((e) => e.kind === defaultEditor)?.label || defaultEditor}
                 </span>
                 <ChevronDown
-                  size={12}
+                  size={sizes.iconSm}
                   strokeWidth={1.9}
                   color={colors.textMuted}
                   style={{ transform: editorDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 120ms' }}

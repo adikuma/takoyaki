@@ -450,6 +450,11 @@ function setupIpc(): void {
     return selected
   })
   ipcMain.handle('workspace:close', (_, id: string) => workspaces.close(id))
+  ipcMain.handle('workspace:create-pane', (_, workspaceId: string) => workspaces.createPane(workspaceId))
+  ipcMain.handle('workspace:split-surface', (_, surfaceId: string, direction: 'horizontal' | 'vertical') =>
+    workspaces.splitSurface(surfaceId, direction),
+  )
+  ipcMain.handle('workspace:close-surface', (_, surfaceId: string) => workspaces.closeSurface(surfaceId))
   ipcMain.handle('workspace:current', () => workspaces.current())
   // pane tree - single call gets the full tree
   ipcMain.handle('workspace:tree', (_, wsId?: string) => workspaces.getTree(wsId))

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Columns2, Rows2, X } from 'lucide-react'
 import { button, getTerminalTheme, fonts, colors, sizes } from './design'
 import type { TerminalEvent, TerminalRuntimeInfo, TerminalSnapshot } from './types'
 import type { TerminalFrame } from './terminal-layout'
@@ -67,6 +67,51 @@ interface Props {
   terminalId: string
   frame: TerminalFrame | null
   isFocused?: boolean
+}
+
+function PaneToolbarButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip content={label} side="bottom">
+      <button
+        type="button"
+        className="flex h-7 w-7 items-center justify-center"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          borderRadius: sizes.radiusMd,
+          color: colors.textSecondary,
+        }}
+        onClick={(event) => {
+          event.stopPropagation()
+          onClick()
+        }}
+        onMouseEnter={(event) => {
+          Object.assign(event.currentTarget.style, {
+            background: colors.bgHover,
+            color: colors.textPrimary,
+          })
+        }}
+        onMouseLeave={(event) => {
+          Object.assign(event.currentTarget.style, {
+            background: 'transparent',
+            borderRadius: `${sizes.radiusMd}px`,
+            color: colors.textSecondary,
+          })
+        }}
+        aria-label={label}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  )
 }
 
 export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
@@ -466,6 +511,18 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
     term.focus()
   }
 
+  const handleSplitRight = () => {
+    void window.takoyaki?.workspace.splitSurface(surfaceId, 'horizontal')
+  }
+
+  const handleSplitDown = () => {
+    void window.takoyaki?.workspace.splitSurface(surfaceId, 'vertical')
+  }
+
+  const handleClosePane = () => {
+    void window.takoyaki?.workspace.closeSurface(surfaceId)
+  }
+
   const wrapperStyle = frame
     ? {
         top: frame.top,
@@ -488,7 +545,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
   return (
     <div
-      className={`absolute flex flex-col overflow-hidden ${isAlternateScreen ? 'takoyaki-pane-alt' : 'takoyaki-pane-shell'}`}
+      className={`group absolute flex flex-col overflow-hidden ${isAlternateScreen ? 'takoyaki-pane-alt' : 'takoyaki-pane-shell'}`}
       style={{
         ...wrapperStyle,
         background: colors.terminalBg,
@@ -510,6 +567,31 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
             zIndex: 3,
           }}
         />
+      )}
+
+      {isVisible && (
+        <div
+          className="absolute right-2 top-2 z-[4] flex items-center gap-1 opacity-0 transition-opacity duration-[100ms] group-hover:opacity-100 group-focus-within:opacity-100"
+          style={{ pointerEvents: 'auto' }}
+        >
+          <div
+            className="flex items-center gap-1 p-1"
+            style={{
+              ...button.base,
+              borderRadius: sizes.radiusMd,
+            }}
+          >
+            <PaneToolbarButton label="Split right" onClick={handleSplitRight}>
+              <Columns2 size={sizes.iconSm} strokeWidth={1.8} />
+            </PaneToolbarButton>
+            <PaneToolbarButton label="Split down" onClick={handleSplitDown}>
+              <Rows2 size={sizes.iconSm} strokeWidth={1.8} />
+            </PaneToolbarButton>
+            <PaneToolbarButton label="Close pane" onClick={handleClosePane}>
+              <X size={sizes.iconSm} strokeWidth={1.8} />
+            </PaneToolbarButton>
+          </div>
+        </div>
       )}
 
       {isVisible && showScrollToBottom && !isAlternateScreen && (
@@ -543,7 +625,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
               }}
               aria-label="Scroll to bottom"
             >
-              <ChevronDown size={16} strokeWidth={2} />
+              <ChevronDown size={sizes.iconBase} strokeWidth={2} />
               <span>Scroll to bottom</span>
             </button>
           </Tooltip>
