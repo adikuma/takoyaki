@@ -6,14 +6,15 @@ import { spawn, spawnSync } from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
+import { MANAGED_CLAUDE_HOOK_EVENTS, type ManagedClaudeHookEvent } from '../shared/claude-status'
 
 const TAKOYAKI_DIR = path.join(os.homedir(), '.takoyaki')
 const HOOKS_STATE_FILE = path.join(TAKOYAKI_DIR, 'hooks-setup.json')
 const CLAUDE_SETTINGS = path.join(os.homedir(), '.claude', 'settings.json')
 const NOTIFY_SCRIPT = path.join(TAKOYAKI_DIR, 'bin', 'takoyaki-notify.js')
 const SOCKET_ADDR_FILE = path.join(TAKOYAKI_DIR, 'socket_addr')
-const REQUIRED_HOOK_EVENTS = ['Stop', 'StopFailure', 'UserPromptSubmit'] as const
-type RequiredHookEvent = (typeof REQUIRED_HOOK_EVENTS)[number]
+const REQUIRED_HOOK_EVENTS = MANAGED_CLAUDE_HOOK_EVENTS
+type RequiredHookEvent = ManagedClaudeHookEvent
 type HookCommandState = 'current' | 'missing' | 'invalid'
 type JsonObject = Record<string, unknown>
 
@@ -72,7 +73,12 @@ const os = require('os')
 const path = require('path')
 
 const EVENT_TO_STATUS = {
+  SessionStart: 'running',
   UserPromptSubmit: 'running',
+  PermissionRequest: 'running',
+  Notification: 'running',
+  SubagentStart: 'running',
+  SubagentStop: 'running',
   Stop: 'finished',
   StopFailure: 'failed'
 }
@@ -103,6 +109,26 @@ function firstString(input, keys) {
   if (!input || typeof input !== 'object') return ''
   for (const key of keys) {
     const value = input[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return ''
+}
+
+function firstNestedString(input, keyGroups) {
+  if (!input || typeof input !== 'object') return ''
+  for (const keys of keyGroups) {
+    let current = input
+    let valid = true
+    for (const key of keys.slice(0, -1)) {
+      if (!current || typeof current !== 'object') {
+        valid = false
+        break
+      }
+      current = current[key]
+    }
+    if (!valid || !current || typeof current !== 'object') continue
+    const finalKey = keys[keys.length - 1]
+    const value = current[finalKey]
     if (typeof value === 'string' && value.trim()) return value.trim()
   }
   return ''
@@ -145,6 +171,11 @@ async function main() {
     firstString(payload, ['status']) ||
     'finished'
   const normalizedEventName = eventName || ''
+  const notificationType = firstString(payload, ['notification_type', 'notificationType'])
+  const toolName = firstString(payload, ['tool_name', 'toolName']) ||
+    firstNestedString(payload, [['tool_input', 'tool_name'], ['toolInput', 'toolName']])
+  const sessionSource = firstString(payload, ['source', 'session_source', 'sessionSource'])
+  const subagentType = firstString(payload, ['agent_type', 'agentType'])
 
   try {
     const addrFile = path.join(os.homedir(), '.takoyaki', 'socket_addr')
@@ -157,6 +188,10 @@ async function main() {
     const params = { status }
     if (surfaceId) params.surface_id = surfaceId
     if (normalizedEventName) params.event_name = normalizedEventName
+    if (notificationType) params.notification_type = notificationType
+    if (toolName) params.tool_name = toolName
+    if (sessionSource) params.session_source = sessionSource
+    if (subagentType) params.subagent_type = subagentType
 
     const msg = JSON.stringify({ id: 1, method: 'status.update', params })
     const client = net.createConnection({ host, port: parseInt(port, 10) }, () => {
@@ -231,42 +266,20 @@ export function installHooks(): boolean {
     if (!settings.hooks) settings.hooks = {}
     if (!fs.existsSync(settingsDir)) fs.mkdirSync(settingsDir, { recursive: true })
 
-    settings.hooks.Stop = removeManagedHookEntries(settings.hooks.Stop || [])
-    settings.hooks.StopFailure = removeManagedHookEntries(settings.hooks.StopFailure || [])
-    settings.hooks.UserPromptSubmit = removeManagedHookEntries(settings.hooks.UserPromptSubmit || [])
-
-    settings.hooks.Stop.push({
-      matcher: '.*',
-      hooks: [
-        {
-          type: 'command',
-          command: hookCommand('Stop'),
-          timeout: 5000,
-        },
-      ],
-    })
-
-    settings.hooks.UserPromptSubmit.push({
-      matcher: '.*',
-      hooks: [
-        {
-          type: 'command',
-          command: hookCommand('UserPromptSubmit'),
-          timeout: 5000,
-        },
-      ],
-    })
-
-    settings.hooks.StopFailure.push({
-      matcher: '.*',
-      hooks: [
-        {
-          type: 'command',
-          command: hookCommand('StopFailure'),
-          timeout: 5000,
-        },
-      ],
-    })
+    for (const eventName of REQUIRED_HOOK_EVENTS) {
+      const existing = Array.isArray(settings.hooks[eventName]) ? settings.hooks[eventName] : []
+      settings.hooks[eventName] = removeManagedHookEntries(existing)
+      settings.hooks[eventName].push({
+        matcher: '.*',
+        hooks: [
+          {
+            type: 'command',
+            command: hookCommand(eventName),
+            timeout: 5000,
+          },
+        ],
+      })
+    }
 
     fs.writeFileSync(CLAUDE_SETTINGS, JSON.stringify(settings, null, 2), 'utf-8')
     saveState({ dismissed: false, installed: true, lastInstalledAt: Date.now() })
@@ -458,19 +471,17 @@ function readHooksState(): HooksState {
 }
 
 function emptyInstalledHooks(): Record<RequiredHookEvent, boolean> {
-  return {
-    Stop: false,
-    StopFailure: false,
-    UserPromptSubmit: false,
-  }
+  return Object.fromEntries(REQUIRED_HOOK_EVENTS.map((eventName) => [eventName, false])) as Record<
+    RequiredHookEvent,
+    boolean
+  >
 }
 
 function emptyHookStates(): Record<RequiredHookEvent, HookCommandState> {
-  return {
-    Stop: 'missing',
-    StopFailure: 'missing',
-    UserPromptSubmit: 'missing',
-  }
+  return Object.fromEntries(REQUIRED_HOOK_EVENTS.map((eventName) => [eventName, 'missing'])) as Record<
+    RequiredHookEvent,
+    HookCommandState
+  >
 }
 
 function readClaudeSettings(): ClaudeSettings {
@@ -480,20 +491,19 @@ function readClaudeSettings(): ClaudeSettings {
 }
 
 function getInstalledHooks(states: Record<RequiredHookEvent, HookCommandState>): Record<RequiredHookEvent, boolean> {
-  return {
-    Stop: states.Stop === 'current',
-    StopFailure: states.StopFailure === 'current',
-    UserPromptSubmit: states.UserPromptSubmit === 'current',
-  }
+  return Object.fromEntries(
+    REQUIRED_HOOK_EVENTS.map((eventName) => [eventName, states[eventName] === 'current']),
+  ) as Record<RequiredHookEvent, boolean>
 }
 
 function getHookCommandStates(settings: ClaudeSettings): Record<RequiredHookEvent, HookCommandState> {
   const hooks = isJsonObject(settings.hooks) ? settings.hooks : {}
-  return {
-    Stop: getHookCommandState(asHookMatchers(hooks.Stop), 'Stop'),
-    StopFailure: getHookCommandState(asHookMatchers(hooks.StopFailure), 'StopFailure'),
-    UserPromptSubmit: getHookCommandState(asHookMatchers(hooks.UserPromptSubmit), 'UserPromptSubmit'),
-  }
+  return Object.fromEntries(
+    REQUIRED_HOOK_EVENTS.map((eventName) => [
+      eventName,
+      getHookCommandState(asHookMatchers(hooks[eventName]), eventName),
+    ]),
+  ) as Record<RequiredHookEvent, HookCommandState>
 }
 
 function getHookCommandState(entries: ClaudeHookMatcher[], eventName: RequiredHookEvent): HookCommandState {

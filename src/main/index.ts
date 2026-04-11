@@ -1,6 +1,6 @@
 // electron main process entry
 
-import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, dialog } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, dialog, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { join } from 'path'
@@ -14,6 +14,7 @@ import { EditorService, type EditorKind, type EditorLaunchTarget } from './edito
 import { PreferencesService } from './preferences'
 import { getTerminalRuntimeInfo } from './terminal-runtime'
 import { ReviewService } from './review'
+import { removeTaskWorkspaceAndWorktree } from './task-removal'
 import { matchTakoyakiShortcut } from '../shared/shortcuts'
 import {
   shouldShowHooksBanner,
@@ -23,6 +24,17 @@ import {
   getHookDiagnostics,
   testHooks,
 } from './hooks'
+import {
+  CLAUDE_RUNNING_STALE_TTL_MS,
+  createDefaultClaudeSurfaceStatus,
+  reduceClaudeSurfaceStatus,
+  shouldKeepClaudeSurfaceStatus,
+  shouldScheduleClaudeRunningExpiry,
+  staleClaudeSurfaceStatus,
+  type ClaudeRuntimeEvent,
+  type ClaudeStatusUpdate,
+  type ClaudeSurfaceStatus,
+} from '../shared/claude-status'
 
 let mainWindow: BrowserWindow | null = null
 const terminals = new TerminalManager()
@@ -36,17 +48,9 @@ const terminalRuntimeInfo = getTerminalRuntimeInfo()
 const reviewService = new ReviewService()
 const pendingGitRefreshProjects = new Set<string>()
 
-type HookStatusState = 'running' | 'finished' | 'failed'
-interface SurfaceStatusRecord {
-  status: HookStatusState
-  eventName: string
-  receivedAt: number
-}
-
-const RUNNING_STATUS_TTL_MS = 12_000
-const surfaceStatuses = new Map<string, SurfaceStatusRecord>()
+const surfaceStatuses = new Map<string, ClaudeSurfaceStatus>()
 const runningExpiryTimers = new Map<string, NodeJS.Timeout>()
-let lastHookEvent: ({ surfaceId: string } & SurfaceStatusRecord) | null = null
+let lastHookEvent: ClaudeRuntimeEvent | null = null
 let lastHookTest: { ok: boolean; detail: string; testedAt: number } | null = null
 let lastVisitedWorkspaceId: string | null = null
 const workspaceLastActivity = new Map<string, number>()
@@ -73,14 +77,14 @@ function sendStatusUpdate(): void {
   send('status:changed', Object.fromEntries(surfaceStatuses))
 }
 
-async function waitForHookEvent(startedAt: number, surfaceId: string, status: string): Promise<boolean> {
+async function waitForHookEvent(startedAt: number, surfaceId: string, activity: string): Promise<boolean> {
   const deadline = Date.now() + 3000
   while (Date.now() < deadline) {
     if (
       lastHookEvent &&
-      lastHookEvent.receivedAt >= startedAt &&
+      lastHookEvent.lastUpdatedAt >= startedAt &&
       lastHookEvent.surfaceId === surfaceId &&
-      lastHookEvent.status === status
+      lastHookEvent.activity === activity
     ) {
       return true
     }
@@ -94,7 +98,7 @@ function clearStatusesForWorkspace(workspaceId: string | null): void {
   let changed = false
   for (const surfaceId of workspaces.surfacesForWorkspace(workspaceId)) {
     const status = surfaceStatuses.get(surfaceId)
-    if (status?.status === 'finished' || status?.status === 'failed') {
+    if (status && !shouldKeepClaudeSurfaceStatus(status)) {
       clearRunningExpiry(surfaceId)
       surfaceStatuses.delete(surfaceId)
       changed = true
@@ -114,36 +118,28 @@ function scheduleRunningExpiry(surfaceId: string, receivedAt: number): void {
   clearRunningExpiry(surfaceId)
   const timer = setTimeout(() => {
     const current = surfaceStatuses.get(surfaceId)
-    if (!current || current.status !== 'running' || current.receivedAt !== receivedAt) return
-    surfaceStatuses.delete(surfaceId)
+    if (!current || !shouldScheduleClaudeRunningExpiry(current) || current.lastUpdatedAt !== receivedAt) return
+    surfaceStatuses.set(surfaceId, staleClaudeSurfaceStatus(current, Date.now()))
     runningExpiryTimers.delete(surfaceId)
     sendStatusUpdate()
-  }, RUNNING_STATUS_TTL_MS)
+  }, CLAUDE_RUNNING_STALE_TTL_MS)
   runningExpiryTimers.set(surfaceId, timer)
 }
 
-function defaultEventName(status: HookStatusState): string {
-  if (status === 'running') return 'UserPromptSubmit'
-  if (status === 'failed') return 'StopFailure'
-  return 'Stop'
-}
-
-rpc.onStatusUpdate = (surfaceId: string, update: { status: string; eventName: string }) => {
+rpc.onStatusUpdate = (surfaceId: string, update: ClaudeStatusUpdate) => {
   if (!surfaceId) return
 
-  const status = update.status as HookStatusState
-  if (status !== 'running' && status !== 'finished' && status !== 'failed') return
-
-  const record: SurfaceStatusRecord = {
-    status,
-    eventName: update.eventName || defaultEventName(status),
-    receivedAt: Date.now(),
-  }
+  const receivedAt = Date.now()
+  const record = reduceClaudeSurfaceStatus(
+    surfaceStatuses.get(surfaceId) || createDefaultClaudeSurfaceStatus(),
+    update,
+    receivedAt,
+  )
 
   clearRunningExpiry(surfaceId)
   surfaceStatuses.set(surfaceId, record)
-  if (record.status === 'running') {
-    scheduleRunningExpiry(surfaceId, record.receivedAt)
+  if (shouldScheduleClaudeRunningExpiry(record)) {
+    scheduleRunningExpiry(surfaceId, record.lastUpdatedAt)
   }
 
   lastHookEvent = { surfaceId, ...record }
@@ -155,10 +151,19 @@ rpc.onStatusUpdate = (surfaceId: string, update: { status: string; eventName: st
   }
 
   // send project-aware toast for finished/failed events (only for non-active workspaces)
-  if ((status === 'finished' || status === 'failed') && eventWsId && eventWsId !== workspaces.activeWorkspaceId) {
+  if (
+    (record.activity === 'finished' || record.activity === 'failed') &&
+    eventWsId &&
+    eventWsId !== workspaces.activeWorkspaceId
+  ) {
     const ws = workspaces.get(eventWsId)
     if (ws) {
-      send('toast:agent-event', { status, workspaceId: eventWsId, workspaceTitle: ws.title, tool: 'claude' })
+      send('toast:agent-event', {
+        status: record.activity,
+        workspaceId: eventWsId,
+        workspaceTitle: ws.title,
+        tool: 'claude',
+      })
     }
   }
 
@@ -175,17 +180,24 @@ async function recoverProjectTasks(projectId: string): Promise<void> {
   const project = workspaces.get(projectId)
   // skip git recovery for plain folders
   if (!project || project.kind !== 'project' || !project.gitEnabled) return
-  const recovered = await worktreeService.listManagedWorktrees(project.projectRoot || project.workingDirectory || '')
-  if (!recovered.length) return
-  workspaces.syncRecoveredTasks(
-    projectId,
-    recovered.map((task) => ({
-      title: task.taskTitle,
-      worktreePath: task.worktreePath,
-      branchName: task.branchName,
-      baseBranch: task.baseBranch,
-    })),
-  )
+  const projectPath = project.projectRoot || project.workingDirectory || ''
+  if (!projectPath || !fs.existsSync(projectPath)) return
+
+  try {
+    const recovered = await worktreeService.listManagedWorktrees(projectPath)
+    if (!recovered.length) return
+    workspaces.syncRecoveredTasks(
+      projectId,
+      recovered.map((task) => ({
+        title: task.taskTitle,
+        worktreePath: task.worktreePath,
+        branchName: task.branchName,
+        baseBranch: task.baseBranch,
+      })),
+    )
+  } catch {
+    // stale saved workspaces or temporary git errors should not break startup or workspace switching
+  }
 }
 
 async function refreshProjectGitState(projectId: string | null, cwdOverride?: string | null): Promise<void> {
@@ -196,6 +208,7 @@ async function refreshProjectGitState(projectId: string | null, cwdOverride?: st
 
   const candidatePath =
     cwdOverride || workspaces.focusedCwd(projectId) || project.projectRoot || project.workingDirectory
+  if (!candidatePath || !fs.existsSync(candidatePath)) return
   const repoRoot = await worktreeService.detectRepoRoot(candidatePath)
   if (!repoRoot) return
 
@@ -206,15 +219,84 @@ async function refreshProjectGitState(projectId: string | null, cwdOverride?: st
   }
 }
 
+function gitWorkspacePath(workspaceId: string): string | null {
+  const workspace = workspaces.get(workspaceId)
+  if (!workspace || !workspace.gitEnabled) return null
+
+  const candidatePath =
+    workspace.kind === 'task'
+      ? workspace.workingDirectory || workspace.projectRoot
+      : workspace.projectRoot || workspace.workingDirectory
+
+  if (!candidatePath || !fs.existsSync(candidatePath)) return null
+  return candidatePath
+}
+
+async function refreshWorkspaceBranch(workspaceId: string | null): Promise<void> {
+  if (!workspaceId) return
+  const workspace = workspaces.get(workspaceId)
+  if (!workspace || !workspace.gitEnabled) return
+
+  const candidatePath = gitWorkspacePath(workspaceId)
+  if (!candidatePath) return
+
+  const branchName = await worktreeService.getCurrentBranch(candidatePath).catch(() => null)
+  workspaces.setWorkspaceBranchName(workspaceId, branchName)
+}
+
+function gitWorkspaceRefreshOrder(): string[] {
+  const gitWorkspaceIds = workspaces
+    .list()
+    .filter((workspace) => workspace.gitEnabled)
+    .map((workspace) => workspace.id)
+
+  if (!gitWorkspaceIds.length) return []
+
+  const ordered: string[] = []
+  const seen = new Set<string>()
+  const push = (workspaceId: string | null | undefined): void => {
+    if (!workspaceId || seen.has(workspaceId) || !gitWorkspaceIds.includes(workspaceId)) return
+    seen.add(workspaceId)
+    ordered.push(workspaceId)
+  }
+
+  const activeWorkspaceId = workspaces.activeWorkspaceId
+  push(activeWorkspaceId)
+
+  const activeWorkspace = activeWorkspaceId ? workspaces.get(activeWorkspaceId) : null
+  if (activeWorkspace?.kind === 'task') {
+    push(activeWorkspace.parentProjectId)
+  }
+
+  for (const workspaceId of gitWorkspaceIds) push(workspaceId)
+  return ordered
+}
+
+async function refreshRestoredGitBranches(): Promise<void> {
+  for (const workspaceId of gitWorkspaceRefreshOrder()) {
+    await refreshWorkspaceBranch(workspaceId)
+  }
+}
+
 function noteSelection(workspaceId: string | null): void {
   if (!workspaceId) return
   noteWorkspaceActivity(workspaceId)
   const workspace = workspaces.get(workspaceId)
-  if (workspace?.kind === 'project') {
-    if (workspace.gitEnabled) {
-      void recoverProjectTasks(workspaceId)
+  if (!workspace) return
+
+  if (workspace.gitEnabled) {
+    void refreshWorkspaceBranch(workspaceId)
+    if (workspace.kind === 'task' && workspace.parentProjectId) {
+      void refreshWorkspaceBranch(workspace.parentProjectId)
       return
     }
+    if (workspace.kind === 'project') {
+      void recoverProjectTasks(workspaceId)
+    }
+    return
+  }
+
+  if (workspace.kind === 'project') {
     void refreshProjectGitState(workspaceId)
   }
 }
@@ -228,6 +310,38 @@ async function openProjectFolder(): Promise<ReturnType<typeof workspaces.create>
   if (result.canceled || !result.filePaths[0]) return null
 
   const folderPath = result.filePaths[0]
+  const managedTask = await worktreeService.findManagedTaskForPath(folderPath)
+  if (managedTask) {
+    const existingParent = workspaces.findProjectByRoot(managedTask.projectRoot)
+    const parentWorkspace =
+      existingParent ||
+      workspaces.create(path.basename(managedTask.projectRoot), managedTask.projectRoot, managedTask.projectRoot, true)
+
+    const parentBranch = await worktreeService.getCurrentBranch(managedTask.projectRoot).catch(() => null)
+    workspaces.promoteProjectToGit(parentWorkspace.id, managedTask.projectRoot, parentBranch)
+
+    await recoverProjectTasks(parentWorkspace.id)
+
+    let taskWorkspace = workspaces.findTaskByPath(parentWorkspace.id, managedTask.worktreePath)
+    if (!taskWorkspace) {
+      const recovered = workspaces.syncRecoveredTasks(parentWorkspace.id, [
+        {
+          title: managedTask.taskTitle,
+          worktreePath: managedTask.worktreePath,
+          branchName: managedTask.branchName,
+          baseBranch: managedTask.baseBranch,
+        },
+      ])
+      taskWorkspace = recovered.find((workspace) => workspace.workingDirectory === managedTask.worktreePath) || null
+    }
+
+    if (taskWorkspace) {
+      workspaces.select(taskWorkspace.id)
+      noteWorkspaceActivity(taskWorkspace.id)
+      return taskWorkspace
+    }
+  }
+
   const repoRoot = await worktreeService.detectRepoRoot(folderPath)
   const projectRoot = repoRoot || folderPath
   const title = path.basename(projectRoot)
@@ -402,41 +516,15 @@ function setupIpc(): void {
   )
   ipcMain.handle('workspace:remove-task', async (_, taskId: string, force = false) => {
     const task = workspaces.get(taskId)
-    if (!task || task.kind !== 'task' || !task.parentProjectId) {
-      return { ok: false, blocked: false, detail: 'Task not found' }
+    const removal = await removeTaskWorkspaceAndWorktree({
+      workspaces,
+      worktreeService,
+      taskId,
+      force,
+    })
+    if (removal.ok && task?.kind === 'task' && task.parentProjectId) {
+      noteWorkspaceActivity(task.parentProjectId)
     }
-
-    const parentProject = workspaces.get(task.parentProjectId)
-    if (!parentProject) {
-      return { ok: false, blocked: false, detail: 'Parent project not found' }
-    }
-
-    const snapshot = workspaces.snapshotWorkspace(taskId)
-    if (!snapshot) {
-      return { ok: false, blocked: false, detail: 'Task could not be snapshotted' }
-    }
-
-    const isDirty = await worktreeService.isTaskDirty(task.workingDirectory || '')
-    if (isDirty && !force) {
-      return {
-        ok: false,
-        blocked: true,
-        detail: 'Task has uncommitted changes. Force remove to delete the worktree.',
-      }
-    }
-
-    workspaces.close(taskId)
-    const removal = await worktreeService.removeTask(
-      parentProject.projectRoot || parentProject.workingDirectory || '',
-      task.workingDirectory || '',
-      true,
-    )
-    if (!removal.ok) {
-      workspaces.restoreWorkspace(snapshot)
-      return removal
-    }
-
-    noteWorkspaceActivity(task.parentProjectId)
     return removal
   })
   ipcMain.handle('workspace:cycle-visible', (_, direction: 'next' | 'prev') => {
@@ -450,6 +538,14 @@ function setupIpc(): void {
     return selected
   })
   ipcMain.handle('workspace:close', (_, id: string) => workspaces.close(id))
+  ipcMain.handle('workspace:create-pane', (_, workspaceId: string) => workspaces.createPane(workspaceId))
+  ipcMain.handle('workspace:split-surface', (_, surfaceId: string, direction: 'horizontal' | 'vertical') =>
+    workspaces.splitSurface(surfaceId, direction),
+  )
+  ipcMain.handle('workspace:close-surface', (_, surfaceId: string) => workspaces.closeSurface(surfaceId))
+  ipcMain.handle('workspace:set-surface-font-size', (_, surfaceId: string, fontSize: number) =>
+    workspaces.setSurfaceFontSize(surfaceId, fontSize),
+  )
   ipcMain.handle('workspace:current', () => workspaces.current())
   // pane tree - single call gets the full tree
   ipcMain.handle('workspace:tree', (_, wsId?: string) => workspaces.getTree(wsId))
@@ -477,7 +573,7 @@ function setupIpc(): void {
     return {
       ...diagnostics,
       restartRequired: Boolean(
-        diagnostics.lastInstalledAt && (!lastHookEvent || lastHookEvent.receivedAt < diagnostics.lastInstalledAt),
+        diagnostics.lastInstalledAt && (!lastHookEvent || lastHookEvent.lastUpdatedAt < diagnostics.lastInstalledAt),
       ),
       lastEvent: lastHookEvent,
       lastTest: lastHookTest,
@@ -561,6 +657,18 @@ function setupIpc(): void {
     }
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
+  ipcMain.handle('window:open-external', async (_, rawUrl: string) => {
+    try {
+      const url = new URL(rawUrl)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return false
+      }
+      await shell.openExternal(url.toString())
+      return true
+    } catch {
+      return false
+    }
+  })
 
   terminals.on('prompt', ({ terminalId, cwd }) => {
     const workspaceId = workspaces.workspaceForTerminal(terminalId)
@@ -608,6 +716,7 @@ app.whenReady().then(async () => {
   await socketServer.start()
   socketServer.startHealthCheck()
   createWindow()
+  void refreshRestoredGitBranches()
 })
 
 app.on('window-all-closed', () => {

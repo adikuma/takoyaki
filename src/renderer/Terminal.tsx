@@ -1,18 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type WheelEvent as ReactWheelEvent,
+} from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
-import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { ChevronDown, ChevronUp, Columns2, Rows2, X } from 'lucide-react'
 import { button, getTerminalTheme, fonts, colors, sizes } from './design'
 import type { TerminalEvent, TerminalRuntimeInfo, TerminalSnapshot } from './types'
 import type { TerminalFrame } from './terminal-layout'
 import { matchTakoyakiShortcut } from '../shared/shortcuts'
 import { Tooltip } from './Tooltip'
 import '@xterm/xterm/css/xterm.css'
+import { DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_STEP, clampTerminalFontSize } from '../shared/terminal-zoom'
 
 let terminalRuntimeInfoPromise: Promise<TerminalRuntimeInfo> | null = null
 const TERMINAL_SCROLL_SENSITIVITY = 2
 const SCROLL_TO_BOTTOM_THRESHOLD = 2
+const TERMINAL_SCROLLBAR_WIDTH = 8
 
 function getTerminalRuntimeInfo(): Promise<TerminalRuntimeInfo> {
   if (!terminalRuntimeInfoPromise) {
@@ -64,15 +74,62 @@ function shouldLetTerminalOwnControlKey(event: KeyboardEvent): boolean {
 interface Props {
   surfaceId: string
   terminalId: string
+  fontSize: number
   frame: TerminalFrame | null
   isFocused?: boolean
 }
 
-export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
+function PaneToolbarButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip content={label} side="bottom">
+      <button
+        type="button"
+        className="flex h-6 w-6 items-center justify-center"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          borderRadius: sizes.radiusMd,
+          color: colors.textSecondary,
+        }}
+        onClick={(event) => {
+          event.stopPropagation()
+          onClick()
+        }}
+        onMouseEnter={(event) => {
+          Object.assign(event.currentTarget.style, {
+            background: colors.bgHover,
+            color: colors.textPrimary,
+          })
+        }}
+        onMouseLeave={(event) => {
+          Object.assign(event.currentTarget.style, {
+            background: 'transparent',
+            borderRadius: `${sizes.radiusMd}px`,
+            color: colors.textSecondary,
+          })
+        }}
+        aria-label={label}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  )
+}
+
+export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
+  const webLinksAddonRef = useRef<WebLinksAddon | null>(null)
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
   const frameRef = useRef<TerminalFrame | null>(frame)
@@ -80,6 +137,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
   const hydratedRef = useRef(false)
   const lastAppliedEventIdRef = useRef(0)
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const fontSizeRef = useRef(clampTerminalFontSize(fontSize ?? DEFAULT_TERMINAL_FONT_SIZE))
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [isAlternateScreen, setIsAlternateScreen] = useState(false)
@@ -136,6 +194,39 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
       })
     }, 32)
   }, [clearPendingResize, terminalId])
+
+  const applyTerminalFontSize = useCallback(
+    (nextFontSize: number) => {
+      const clamped = clampTerminalFontSize(nextFontSize)
+      fontSizeRef.current = clamped
+      const term = termRef.current
+      if (!term || term.options.fontSize === clamped) return
+      term.options.fontSize = clamped
+      requestResize()
+    },
+    [requestResize],
+  )
+
+  const setPaneFontSize = useCallback(
+    (nextFontSize: number) => {
+      const clamped = clampTerminalFontSize(nextFontSize)
+      if (clamped === fontSizeRef.current) return
+      applyTerminalFontSize(clamped)
+      void window.takoyaki?.workspace.setSurfaceFontSize(surfaceId, clamped)
+    },
+    [applyTerminalFontSize, surfaceId],
+  )
+
+  const adjustPaneFontSize = useCallback(
+    (delta: number) => {
+      setPaneFontSize(fontSizeRef.current + delta)
+    },
+    [setPaneFontSize],
+  )
+
+  useEffect(() => {
+    applyTerminalFontSize(fontSize)
+  }, [applyTerminalFontSize, fontSize])
 
   const queueTerminalTask = useCallback((task: () => Promise<void> | void) => {
     writeQueueRef.current = writeQueueRef.current.then(async () => {
@@ -245,13 +336,14 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
         const term = new XTerm({
           fontFamily: fonts.mono,
-          fontSize: 14,
+          fontSize: fontSizeRef.current,
           lineHeight: 1.25,
           cursorBlink: false,
           cursorStyle: 'bar',
           cursorInactiveStyle: 'none',
           scrollback: 5000,
           scrollSensitivity: TERMINAL_SCROLL_SENSITIVITY,
+          overviewRuler: { width: TERMINAL_SCROLLBAR_WIDTH },
           allowProposedApi: true,
           theme: getTerminalTheme((localStorage.getItem('takoyaki-theme') as 'dark' | 'light') || 'dark'),
           windowsPty: runtimeInfo.windowsPty || undefined,
@@ -259,11 +351,37 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
         const fit = new FitAddon()
         const search = new SearchAddon()
+        const webLinks = new WebLinksAddon((event, uri) => {
+          event.preventDefault()
+          event.stopPropagation()
+          void window.takoyaki.window.openExternal(uri)
+        })
         term.loadAddon(fit)
         term.loadAddon(search)
+        term.loadAddon(webLinks)
 
         term.attachCustomKeyEventHandler((event) => {
           if (event.type !== 'keydown') return true
+          const modifierKey = event.ctrlKey || event.metaKey
+          const key = event.key
+          if (modifierKey && !event.altKey) {
+            const wantsZoomIn = key === '=' || key === '+' || event.code === 'NumpadAdd'
+            const wantsZoomOut = key === '-' || event.code === 'NumpadSubtract'
+            const wantsZoomReset =
+              (!event.shiftKey && key === '0') ||
+              (!event.shiftKey && event.code === 'Digit0') ||
+              event.code === 'Numpad0'
+            if (wantsZoomIn || wantsZoomOut || wantsZoomReset) {
+              event.preventDefault()
+              event.stopPropagation()
+              if (wantsZoomReset) {
+                setPaneFontSize(DEFAULT_TERMINAL_FONT_SIZE)
+              } else {
+                adjustPaneFontSize(wantsZoomIn ? TERMINAL_FONT_SIZE_STEP : -TERMINAL_FONT_SIZE_STEP)
+              }
+              return false
+            }
+          }
           if (
             event.ctrlKey &&
             !event.altKey &&
@@ -306,11 +424,12 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
         termRef.current = term
         fitRef.current = fit
         searchAddonRef.current = search
+        webLinksAddonRef.current = webLinks
 
         const mountNode = containerRef.current
         mountNode.style.width = '100%'
         mountNode.style.height = '100%'
-        mountNode.style.padding = '8px 10px 4px 10px'
+        mountNode.style.padding = '8px 0 4px 10px'
         term.open(mountNode)
 
         window.addEventListener('takoyaki-theme-changed', onThemeChanged)
@@ -386,6 +505,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
       terminalEventCleanup?.()
       window.removeEventListener('takoyaki-theme-changed', onThemeChanged)
       searchAddonRef.current = null
+      webLinksAddonRef.current = null
       fitRef.current = null
       termRef.current?.dispose()
       termRef.current = null
@@ -396,11 +516,13 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
       setShowScrollToBottom(false)
     }
   }, [
+    adjustPaneFontSize,
     applyEvent,
     applySnapshot,
     clearPendingResize,
     queueTerminalTask,
     requestResize,
+    setPaneFontSize,
     syncScrollAffordances,
     terminalId,
   ])
@@ -450,9 +572,24 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
     searchAddonRef.current?.clearDecorations()
   }
 
+  const syncSurfaceFocus = () => {
+    void window.takoyaki?.surface.focus(surfaceId)
+  }
+
+  const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!isVisible) return
+    if (event.button !== 0) return
+    syncSurfaceFocus()
+  }
+
+  const handleFocusWithin = () => {
+    if (!isVisible) return
+    if (isFocused) return
+    syncSurfaceFocus()
+  }
+
   const handleClick = () => {
     if (!isVisible) return
-    void window.takoyaki?.surface.focus(surfaceId)
     termRef.current?.focus()
   }
 
@@ -462,6 +599,29 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
     term.scrollToBottom()
     syncScrollAffordances(term)
     term.focus()
+  }
+
+  const handleSplitRight = () => {
+    void window.takoyaki?.workspace.splitSurface(surfaceId, 'horizontal')
+  }
+
+  const handleSplitDown = () => {
+    void window.takoyaki?.workspace.splitSurface(surfaceId, 'vertical')
+  }
+
+  const handleClosePane = () => {
+    void window.takoyaki?.workspace.closeSurface(surfaceId)
+  }
+
+  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!isVisible) return
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+    event.preventDefault()
+    event.stopPropagation()
+    void window.takoyaki?.surface.focus(surfaceId)
+    termRef.current?.focus()
+    if (event.deltaY === 0) return
+    adjustPaneFontSize(event.deltaY < 0 ? TERMINAL_FONT_SIZE_STEP : -TERMINAL_FONT_SIZE_STEP)
   }
 
   const wrapperStyle = frame
@@ -486,13 +646,16 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
   return (
     <div
-      className={`absolute flex flex-col overflow-hidden ${isAlternateScreen ? 'takoyaki-pane-alt' : 'takoyaki-pane-shell'}`}
+      className={`group absolute flex flex-col overflow-hidden ${isAlternateScreen ? 'takoyaki-pane-alt' : 'takoyaki-pane-shell'}`}
       style={{
         ...wrapperStyle,
         background: colors.terminalBg,
         zIndex: isFocused && isVisible ? 2 : 1,
       }}
+      onMouseDown={handleMouseDown}
+      onFocusCapture={handleFocusWithin}
       onClick={handleClick}
+      onWheel={handleWheel}
     >
       {isFocused && isVisible && (
         <div
@@ -508,6 +671,29 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
             zIndex: 3,
           }}
         />
+      )}
+
+      {isVisible && (
+        <div
+          className="shrink-0 flex items-center justify-end px-2 py-1"
+          style={{
+            minHeight: 30,
+            background: isFocused && isVisible ? colors.bgSubtle : colors.terminalBg,
+            borderBottom: `1px solid ${isFocused && isVisible ? colors.separator : 'transparent'}`,
+          }}
+        >
+          <div className="inline-flex items-center gap-0.5" onMouseDown={(event) => event.stopPropagation()}>
+            <PaneToolbarButton label="Split right" onClick={handleSplitRight}>
+              <Columns2 size={sizes.iconSm} strokeWidth={1.8} />
+            </PaneToolbarButton>
+            <PaneToolbarButton label="Split down" onClick={handleSplitDown}>
+              <Rows2 size={sizes.iconSm} strokeWidth={1.8} />
+            </PaneToolbarButton>
+            <PaneToolbarButton label="Close pane" onClick={handleClosePane}>
+              <X size={sizes.iconSm} strokeWidth={1.8} />
+            </PaneToolbarButton>
+          </div>
+        </div>
       )}
 
       {isVisible && showScrollToBottom && !isAlternateScreen && (
@@ -541,7 +727,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
               }}
               aria-label="Scroll to bottom"
             >
-              <ChevronDown size={16} strokeWidth={2} />
+              <ChevronDown size={sizes.iconBase} strokeWidth={2} />
               <span>Scroll to bottom</span>
             </button>
           </Tooltip>

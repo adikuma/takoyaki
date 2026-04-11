@@ -9,6 +9,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { TerminalManager } from './terminal'
+import { DEFAULT_TERMINAL_FONT_SIZE, clampTerminalFontSize } from '../shared/terminal-zoom'
 
 function resolveGitBranch(cwd: string): Promise<string | null> {
   return new Promise((resolve) => {
@@ -48,12 +49,12 @@ export interface RecoveredTaskWorkspace {
 
 // pane tree with terminal ids baked in
 export type PaneTree =
-  | { type: 'leaf'; surfaceId: string; terminalId: string }
+  | { type: 'leaf'; surfaceId: string; terminalId: string; fontSize: number }
   | { type: 'split'; direction: 'horizontal' | 'vertical'; first: PaneTree; second: PaneTree }
 
 interface WorkspaceState {
   workspace: Workspace
-  paneTree: PaneTree
+  paneTree: PaneTree | null
 }
 
 interface SavedWorkspaceState {
@@ -67,11 +68,11 @@ interface SavedWorkspaceState {
   gitEnabled?: boolean
   branchName: string | null
   baseBranch: string | null
-  paneTree: SavedPaneTree
+  paneTree: SavedPaneTree | null
 }
 
 type SavedPaneTree =
-  | { type: 'leaf'; surfaceId: string; cwd?: string }
+  | { type: 'leaf'; surfaceId: string; cwd?: string; fontSize?: number }
   | { type: 'split'; direction: 'horizontal' | 'vertical'; first: SavedPaneTree; second: SavedPaneTree }
 
 type FocusDirection = 'left' | 'right' | 'up' | 'down'
@@ -116,7 +117,12 @@ export class WorkspaceManager extends EventEmitter {
       baseBranch: null,
     }
 
-    const paneTree: PaneTree = { type: 'leaf', surfaceId, terminalId: termInfo.id }
+    const paneTree: PaneTree = {
+      type: 'leaf',
+      surfaceId,
+      terminalId: termInfo.id,
+      fontSize: DEFAULT_TERMINAL_FONT_SIZE,
+    }
     const entry = { workspace, paneTree }
 
     this.state.set(id, entry)
@@ -144,6 +150,23 @@ export class WorkspaceManager extends EventEmitter {
 
   listProjects(): Workspace[] {
     return this.list().filter((workspace) => workspace.kind === 'project')
+  }
+
+  findProjectByRoot(projectRoot: string): Workspace | null {
+    const normalizedRoot = normalizePath(projectRoot)
+    for (const entry of this.state.values()) {
+      const workspace = entry.workspace
+      if (workspace.kind !== 'project') continue
+      if (normalizePath(workspace.projectRoot || workspace.workingDirectory) === normalizedRoot) {
+        return this.serializeWorkspace(entry)
+      }
+    }
+    return null
+  }
+
+  findTaskByPath(parentProjectId: string, worktreePath: string): Workspace | null {
+    const entry = this.findTaskEntry(parentProjectId, worktreePath, '')
+    return entry ? this.serializeWorkspace(entry) : null
   }
 
   get(id: string): Workspace | null {
@@ -177,6 +200,14 @@ export class WorkspaceManager extends EventEmitter {
     entry.workspace.projectRoot = projectRoot
     this.emitChange()
     return true
+  }
+
+  setWorkspaceBranchName(workspaceId: string, branchName: string | null): Workspace | null {
+    const entry = this.state.get(workspaceId)
+    if (!entry || entry.workspace.branchName === branchName) return entry ? this.serializeWorkspace(entry) : null
+    entry.workspace.branchName = branchName
+    this.emitChange()
+    return this.serializeWorkspace(entry)
   }
 
   promoteProjectToGit(workspaceId: string, projectRoot: string, branchName: string | null): Workspace | null {
@@ -241,7 +272,12 @@ export class WorkspaceManager extends EventEmitter {
       baseBranch,
     }
 
-    const paneTree: PaneTree = { type: 'leaf', surfaceId, terminalId: termInfo.id }
+    const paneTree: PaneTree = {
+      type: 'leaf',
+      surfaceId,
+      terminalId: termInfo.id,
+      fontSize: DEFAULT_TERMINAL_FONT_SIZE,
+    }
     this.state.set(id, { workspace, paneTree })
     this.activeWorkspaceId = id
     this.emitChange()
@@ -279,6 +315,21 @@ export class WorkspaceManager extends EventEmitter {
         continue
       }
 
+      const standalone = this.findStandaloneProjectEntry(task.worktreePath)
+      if (standalone) {
+        standalone.workspace.title = task.title
+        standalone.workspace.kind = 'task'
+        standalone.workspace.parentProjectId = parentProjectId
+        standalone.workspace.gitEnabled = true
+        standalone.workspace.branchName = task.branchName
+        standalone.workspace.baseBranch = task.baseBranch
+        standalone.workspace.workingDirectory = task.worktreePath
+        standalone.workspace.projectRoot = task.worktreePath
+        recovered.push(this.serializeWorkspace(standalone))
+        changed = true
+        continue
+      }
+
       const id = randomUUID()
       const surfaceId = randomUUID()
       const termInfo = this.terminals.create(task.worktreePath, surfaceId)
@@ -294,7 +345,12 @@ export class WorkspaceManager extends EventEmitter {
         branchName: task.branchName,
         baseBranch: task.baseBranch,
       }
-      const paneTree: PaneTree = { type: 'leaf', surfaceId, terminalId: termInfo.id }
+      const paneTree: PaneTree = {
+        type: 'leaf',
+        surfaceId,
+        terminalId: termInfo.id,
+        fontSize: DEFAULT_TERMINAL_FONT_SIZE,
+      }
       const entry = { workspace, paneTree }
       this.state.set(id, entry)
       recovered.push(this.serializeWorkspace(entry))
@@ -380,45 +436,98 @@ export class WorkspaceManager extends EventEmitter {
     return this.state.get(id)?.paneTree || null
   }
 
-  splitFocused(direction: 'horizontal' | 'vertical'): boolean {
-    const ws = this.activeWorkspaceId ? this.state.get(this.activeWorkspaceId) : null
-    if (!ws || !ws.workspace.focusedSurfaceId) return false
+  createPane(workspaceId: string): boolean {
+    const entry = this.state.get(workspaceId)
+    if (!entry || entry.paneTree) return false
 
-    const targetSurfaceId = ws.workspace.focusedSurfaceId
-    const newSurfaceId = randomUUID()
-
-    const focusedTerminalId = this.findTerminalId(ws.paneTree, targetSurfaceId)
-    const splitCwd = focusedTerminalId ? this.terminals.getCwd(focusedTerminalId) : ws.workspace.workingDirectory
-
-    // create a new pty for the new pane using the focused pane's live cwd
-    const termInfo = this.terminals.create(splitCwd, newSurfaceId)
-
-    ws.paneTree = this.splitLeaf(ws.paneTree, targetSurfaceId, newSurfaceId, termInfo.id, direction)
-    ws.workspace.focusedSurfaceId = newSurfaceId
+    const surfaceId = randomUUID()
+    const termInfo = this.terminals.create(entry.workspace.workingDirectory, surfaceId)
+    entry.paneTree = {
+      type: 'leaf',
+      surfaceId,
+      terminalId: termInfo.id,
+      fontSize: DEFAULT_TERMINAL_FONT_SIZE,
+    }
+    entry.workspace.focusedSurfaceId = surfaceId
 
     this.emitChange()
     return true
   }
 
+  splitFocused(direction: 'horizontal' | 'vertical'): boolean {
+    const ws = this.activeWorkspaceId ? this.state.get(this.activeWorkspaceId) : null
+    if (!ws || !ws.workspace.focusedSurfaceId) return false
+    return this.splitSurface(ws.workspace.focusedSurfaceId, direction)
+  }
+
+  splitSurface(surfaceId: string, direction: 'horizontal' | 'vertical'): boolean {
+    for (const entry of this.state.values()) {
+      if (!entry.paneTree || !this.collectSurfaceIds(entry.paneTree).includes(surfaceId)) continue
+
+      const newSurfaceId = randomUUID()
+      const focusedTerminalId = this.findTerminalId(entry.paneTree, surfaceId)
+      const sourceFontSize = this.findFontSize(entry.paneTree, surfaceId) ?? DEFAULT_TERMINAL_FONT_SIZE
+      const splitCwd = focusedTerminalId ? this.terminals.getCwd(focusedTerminalId) : entry.workspace.workingDirectory
+      const termInfo = this.terminals.create(splitCwd, newSurfaceId)
+
+      entry.paneTree = this.splitLeaf(entry.paneTree, surfaceId, newSurfaceId, termInfo.id, direction, sourceFontSize)
+      entry.workspace.focusedSurfaceId = newSurfaceId
+      this.emitChange()
+      return true
+    }
+
+    return false
+  }
+
   closeFocused(): boolean {
     const ws = this.activeWorkspaceId ? this.state.get(this.activeWorkspaceId) : null
     if (!ws || !ws.workspace.focusedSurfaceId) return false
+    return this.closeSurface(ws.workspace.focusedSurfaceId)
+  }
 
-    const targetSurfaceId = ws.workspace.focusedSurfaceId
-    const allIds = this.collectSurfaceIds(ws.paneTree)
-    if (allIds.length <= 1) return false
+  setSurfaceFontSize(surfaceId: string, fontSize: number): boolean {
+    const nextFontSize = clampTerminalFontSize(fontSize)
+    for (const entry of this.state.values()) {
+      if (!entry.paneTree || !this.collectSurfaceIds(entry.paneTree).includes(surfaceId)) continue
+      if (!this.updateLeafFontSize(entry.paneTree, surfaceId, nextFontSize)) return false
+      this.emitChange()
+      return true
+    }
 
-    // find and kill the pty for the closed surface
-    const termId = this.findTerminalId(ws.paneTree, targetSurfaceId)
-    if (termId) this.terminals.destroy(termId)
+    return false
+  }
 
-    ws.paneTree = this.removeLeaf(ws.paneTree, targetSurfaceId) || ws.paneTree
+  closeSurface(surfaceId: string): boolean {
+    for (const entry of this.state.values()) {
+      if (!entry.paneTree || !this.collectSurfaceIds(entry.paneTree).includes(surfaceId)) continue
 
-    const remaining = this.collectSurfaceIds(ws.paneTree)
-    ws.workspace.focusedSurfaceId = remaining[0] || null
+      const previousFocusedSurfaceId = entry.workspace.focusedSurfaceId
+      const termId = this.findTerminalId(entry.paneTree, surfaceId)
+      const removedSurfaceCwd = termId ? this.terminals.getCwd(termId) : entry.workspace.workingDirectory
+      if (termId) {
+        this.terminals.destroy(termId)
+      }
 
-    this.emitChange()
-    return true
+      entry.paneTree = this.removeLeaf(entry.paneTree, surfaceId)
+      const remaining = this.collectSurfaceIds(entry.paneTree)
+      const nextFocusedSurfaceId = !remaining.length
+        ? null
+        : previousFocusedSurfaceId &&
+            previousFocusedSurfaceId !== surfaceId &&
+            remaining.includes(previousFocusedSurfaceId)
+          ? previousFocusedSurfaceId
+          : remaining[0]
+      entry.workspace.focusedSurfaceId = nextFocusedSurfaceId
+      entry.workspace.workingDirectory =
+        nextFocusedSurfaceId && entry.paneTree
+          ? this.cwdForSurface(entry.paneTree, nextFocusedSurfaceId) || entry.workspace.workingDirectory
+          : removedSurfaceCwd
+
+      this.emitChange()
+      return true
+    }
+
+    return false
   }
 
   focusSurface(surfaceId: string): boolean {
@@ -436,7 +545,7 @@ export class WorkspaceManager extends EventEmitter {
   moveFocus(direction: FocusDirection): boolean {
     const ws = this.activeWorkspaceId ? this.state.get(this.activeWorkspaceId) : null
     const focusedSurfaceId = ws?.workspace.focusedSurfaceId
-    if (!ws || !focusedSurfaceId) return false
+    if (!ws || !ws.paneTree || !focusedSurfaceId) return false
 
     const path = this.findSurfacePath(ws.paneTree, focusedSurfaceId)
     if (!path) return false
@@ -469,9 +578,10 @@ export class WorkspaceManager extends EventEmitter {
     const id = workspaceId || this.activeWorkspaceId
     if (!id) return null
     const entry = this.state.get(id)
-    if (!entry?.workspace.focusedSurfaceId) return null
+    if (!entry) return null
+    if (!entry.workspace.focusedSurfaceId || !entry.paneTree) return entry.workspace.workingDirectory
     const terminalId = this.findTerminalId(entry.paneTree, entry.workspace.focusedSurfaceId)
-    return terminalId ? this.terminals.getCwd(terminalId) : null
+    return terminalId ? this.terminals.getCwd(terminalId) : entry.workspace.workingDirectory
   }
 
   snapshotWorkspace(id: string): SavedWorkspaceState | null {
@@ -516,7 +626,8 @@ export class WorkspaceManager extends EventEmitter {
     return this.serializeWorkspace({ workspace, paneTree })
   }
 
-  collectSurfaceIds(tree: PaneTree): string[] {
+  collectSurfaceIds(tree: PaneTree | null): string[] {
+    if (!tree) return []
     if (tree.type === 'leaf') return [tree.surfaceId]
     return [...this.collectSurfaceIds(tree.first), ...this.collectSurfaceIds(tree.second)]
   }
@@ -559,11 +670,22 @@ export class WorkspaceManager extends EventEmitter {
       for (const ws of raw.workspaces || []) {
         const normalizedWorkingDirectory =
           typeof ws.workingDirectory === 'string' ? normalizePath(ws.workingDirectory) : ''
+        const normalizedProjectRoot = typeof ws.projectRoot === 'string' ? normalizePath(ws.projectRoot) : ''
+        const hasWorkingDirectory =
+          Boolean(normalizedWorkingDirectory) &&
+          fs.existsSync(ws.workingDirectory) &&
+          fs.statSync(ws.workingDirectory).isDirectory()
+        const resolvedProjectRoot = ws.projectRoot || ws.workingDirectory
+        const hasProjectRoot =
+          Boolean(normalizedProjectRoot || normalizedWorkingDirectory) &&
+          Boolean(resolvedProjectRoot) &&
+          fs.existsSync(resolvedProjectRoot) &&
+          fs.statSync(resolvedProjectRoot).isDirectory()
         const isLegacyTask =
           ws.kind === 'task' && normalizedWorkingDirectory.startsWith(`${normalizePath(LEGACY_TASK_ROOT)}/`)
-        const isMissingTaskPath =
-          ws.kind === 'task' && (!normalizedWorkingDirectory || !fs.existsSync(ws.workingDirectory))
-        if (isLegacyTask || isMissingTaskPath) continue
+        const isMissingTaskPath = ws.kind === 'task' && !hasWorkingDirectory
+        const isMissingProjectPath = ws.kind !== 'task' && (!hasWorkingDirectory || !hasProjectRoot)
+        if (isLegacyTask || isMissingTaskPath || isMissingProjectPath) continue
 
         const paneTree = this.restoreTerminalIds(ws.paneTree, ws.workingDirectory)
         const surfaceIds = this.collectSurfaceIds(paneTree)
@@ -627,6 +749,7 @@ export class WorkspaceManager extends EventEmitter {
     newSurfaceId: string,
     newTerminalId: string,
     direction: 'horizontal' | 'vertical',
+    newFontSize: number,
   ): PaneTree {
     if (tree.type === 'leaf') {
       if (tree.surfaceId === targetId) {
@@ -634,15 +757,15 @@ export class WorkspaceManager extends EventEmitter {
           type: 'split',
           direction,
           first: tree,
-          second: { type: 'leaf', surfaceId: newSurfaceId, terminalId: newTerminalId },
+          second: { type: 'leaf', surfaceId: newSurfaceId, terminalId: newTerminalId, fontSize: newFontSize },
         }
       }
       return tree
     }
     return {
       ...tree,
-      first: this.splitLeaf(tree.first, targetId, newSurfaceId, newTerminalId, direction),
-      second: this.splitLeaf(tree.second, targetId, newSurfaceId, newTerminalId, direction),
+      first: this.splitLeaf(tree.first, targetId, newSurfaceId, newTerminalId, direction, newFontSize),
+      second: this.splitLeaf(tree.second, targetId, newSurfaceId, newTerminalId, direction, newFontSize),
     }
   }
 
@@ -657,14 +780,37 @@ export class WorkspaceManager extends EventEmitter {
     return { ...tree, first, second }
   }
 
-  private findTerminalId(tree: PaneTree, surfaceId: string): string | null {
+  private findTerminalId(tree: PaneTree | null, surfaceId: string): string | null {
+    if (!tree) return null
     if (tree.type === 'leaf') {
       return tree.surfaceId === surfaceId ? tree.terminalId : null
     }
     return this.findTerminalId(tree.first, surfaceId) || this.findTerminalId(tree.second, surfaceId)
   }
 
-  private collectTerminalIds(tree: PaneTree): string[] {
+  private findFontSize(tree: PaneTree | null, surfaceId: string): number | null {
+    if (!tree) return null
+    if (tree.type === 'leaf') {
+      return tree.surfaceId === surfaceId ? tree.fontSize : null
+    }
+    return this.findFontSize(tree.first, surfaceId) || this.findFontSize(tree.second, surfaceId)
+  }
+
+  private updateLeafFontSize(tree: PaneTree | null, surfaceId: string, fontSize: number): boolean {
+    if (!tree) return false
+    if (tree.type === 'leaf') {
+      if (tree.surfaceId !== surfaceId || tree.fontSize === fontSize) return false
+      tree.fontSize = fontSize
+      return true
+    }
+    return (
+      this.updateLeafFontSize(tree.first, surfaceId, fontSize) ||
+      this.updateLeafFontSize(tree.second, surfaceId, fontSize)
+    )
+  }
+
+  private collectTerminalIds(tree: PaneTree | null): string[] {
+    if (!tree) return []
     if (tree.type === 'leaf') return [tree.terminalId]
     return [...this.collectTerminalIds(tree.first), ...this.collectTerminalIds(tree.second)]
   }
@@ -687,11 +833,23 @@ export class WorkspaceManager extends EventEmitter {
   }
 
   private findTaskEntry(parentProjectId: string, worktreePath: string, branchName: string): WorkspaceState | null {
+    const normalizedPath = normalizePath(worktreePath)
     for (const entry of this.state.values()) {
       const workspace = entry.workspace
       if (workspace.kind !== 'task' || workspace.parentProjectId !== parentProjectId) continue
-      if (workspace.workingDirectory === worktreePath) return entry
-      if (workspace.branchName === branchName) return entry
+      if (normalizePath(workspace.workingDirectory) === normalizedPath) return entry
+      if (branchName && workspace.branchName === branchName) return entry
+    }
+    return null
+  }
+
+  private findStandaloneProjectEntry(worktreePath: string): WorkspaceState | null {
+    const normalizedPath = normalizePath(worktreePath)
+    for (const entry of this.state.values()) {
+      const workspace = entry.workspace
+      if (workspace.kind !== 'project' || workspace.parentProjectId) continue
+      if (normalizePath(workspace.projectRoot || workspace.workingDirectory) === normalizedPath) return entry
+      if (normalizePath(workspace.workingDirectory) === normalizedPath) return entry
     }
     return null
   }
@@ -745,21 +903,33 @@ export class WorkspaceManager extends EventEmitter {
     return node?.type === 'leaf' ? node.surfaceId : null
   }
 
+  private cwdForSurface(tree: PaneTree | null, surfaceId: string): string | null {
+    const terminalId = this.findTerminalId(tree, surfaceId)
+    return terminalId ? this.terminals.getCwd(terminalId) : null
+  }
+
   // serialize tree for saving (strip terminal ids, add per-leaf cwd)
-  private stripTerminalIds(tree: PaneTree): SavedPaneTree {
+  private stripTerminalIds(tree: PaneTree | null): SavedPaneTree | null {
+    if (!tree) return null
     if (tree.type === 'leaf') {
-      return { type: 'leaf', surfaceId: tree.surfaceId, cwd: this.terminals.getCwd(tree.terminalId) }
+      return {
+        type: 'leaf',
+        surfaceId: tree.surfaceId,
+        cwd: this.terminals.getCwd(tree.terminalId),
+        fontSize: tree.fontSize,
+      }
     }
     return {
       type: 'split',
       direction: tree.direction,
-      first: this.stripTerminalIds(tree.first),
-      second: this.stripTerminalIds(tree.second),
+      first: this.stripTerminalIds(tree.first)!,
+      second: this.stripTerminalIds(tree.second)!,
     }
   }
 
   // deserialize tree on load (spawn new ptys with per-leaf cwd)
-  private restoreTerminalIds(tree: SavedPaneTree, fallbackCwd: string): PaneTree {
+  private restoreTerminalIds(tree: SavedPaneTree | null, fallbackCwd: string): PaneTree | null {
+    if (!tree) return null
     if (tree.type === 'leaf') {
       // validate saved cwd is an actual directory, fall back if not
       let leafCwd = fallbackCwd
@@ -774,13 +944,18 @@ export class WorkspaceManager extends EventEmitter {
       }
       const sid = tree.surfaceId || randomUUID()
       const termInfo = this.terminals.create(leafCwd, sid)
-      return { type: 'leaf', surfaceId: sid, terminalId: termInfo.id }
+      return {
+        type: 'leaf',
+        surfaceId: sid,
+        terminalId: termInfo.id,
+        fontSize: clampTerminalFontSize(tree.fontSize ?? DEFAULT_TERMINAL_FONT_SIZE),
+      }
     }
     return {
       type: 'split',
       direction: tree.direction,
-      first: this.restoreTerminalIds(tree.first, fallbackCwd),
-      second: this.restoreTerminalIds(tree.second, fallbackCwd),
+      first: this.restoreTerminalIds(tree.first, fallbackCwd)!,
+      second: this.restoreTerminalIds(tree.second, fallbackCwd)!,
     }
   }
 }

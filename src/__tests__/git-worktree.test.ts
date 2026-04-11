@@ -69,6 +69,7 @@ describe('GitWorktreeService', () => {
 
   it('creates a task from the current branch with an auto-generated unique branch name', async () => {
     const managedPath = path.join(repoParent, 'repo-auth-refactor')
+    mockGit(repoRoot, ['rev-parse', '--verify', 'HEAD'], 'abc123\n')
     mockGit(repoRoot, ['branch', '--show-current'], 'main\n')
     mockGit(repoRoot, ['show-ref', '--verify', '--quiet', 'refs/heads/task/auth-refactor'], '', 'missing')
     mockGit(repoRoot, ['worktree', 'add', '-b', 'task/auth-refactor', managedPath, 'main'], '')
@@ -89,6 +90,7 @@ describe('GitWorktreeService', () => {
 
   it('adds a numeric suffix when the auto-generated branch already exists', async () => {
     const managedPath = path.join(repoParent, 'repo-auth-refactor')
+    mockGit(repoRoot, ['rev-parse', '--verify', 'HEAD'], 'abc123\n')
     mockGit(repoRoot, ['branch', '--show-current'], 'main\n')
     mockGit(repoRoot, ['show-ref', '--verify', '--quiet', 'refs/heads/task/auth-refactor'], '')
     mockGit(repoRoot, ['show-ref', '--verify', '--quiet', 'refs/heads/task/auth-refactor-2'], '', 'missing')
@@ -100,6 +102,17 @@ describe('GitWorktreeService', () => {
     })
 
     expect(result.branchName).toBe('task/auth-refactor-2')
+  })
+
+  it('returns a friendly error when the repo has no initial commit yet', async () => {
+    mockGit(repoRoot, ['rev-parse', '--verify', 'HEAD'], '', 'fatal: Needed a single revision')
+
+    await expect(
+      service.createTask({
+        projectRoot: repoRoot,
+        taskTitle: 'Auth Refactor',
+      }),
+    ).rejects.toThrow('Create an initial commit before creating tasks/worktrees.')
   })
 
   it('blocks removal when the task worktree is dirty', async () => {
@@ -140,6 +153,80 @@ describe('GitWorktreeService', () => {
       ok: true,
       blocked: false,
       detail: 'Task worktree removed. Branch was kept.',
+    })
+    expect(fs.existsSync(path.join(metadataDir, 'takoyaki-tasks.json'))).toBe(false)
+  })
+
+  it('removes a clean worktree without forcing', async () => {
+    const metadataDir = path.join(repoRoot, '.git')
+    const worktreePath = path.join(repoParent, 'repo-task-clean')
+    fs.mkdirSync(metadataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(metadataDir, 'takoyaki-tasks.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            taskTitle: 'Clean Task',
+            branchName: 'feature/clean-task',
+            baseBranch: 'main',
+            worktreePath,
+            createdAt: 1,
+          },
+        ],
+      }),
+      'utf-8',
+    )
+    mockGit(worktreePath, ['status', '--porcelain=v1', '-uall'], '')
+    mockGit(repoRoot, ['worktree', 'remove', worktreePath], '')
+    mockGit(repoRoot, ['worktree', 'prune'], '')
+
+    await expect(service.removeTask(repoRoot, worktreePath)).resolves.toEqual({
+      ok: true,
+      blocked: false,
+      detail: 'Task worktree removed. Branch was kept.',
+    })
+    expect(fs.existsSync(path.join(metadataDir, 'takoyaki-tasks.json'))).toBe(false)
+  })
+
+  it('returns a clearer message when the task worktree is still in use', async () => {
+    const worktreePath = path.join(repoParent, 'repo-task-busy')
+    mockGit(worktreePath, ['status', '--porcelain=v1', '-uall'], '')
+    mockGit(repoRoot, ['worktree', 'remove', '--force', worktreePath], '', 'Access is denied')
+
+    await expect(service.removeTask(repoRoot, worktreePath, true)).resolves.toEqual({
+      ok: false,
+      blocked: false,
+      detail: 'Task worktree is still in use. Close running processes, terminals, or editors using it and try again.',
+    })
+  })
+
+  it('cleans up stale task metadata when the worktree is already unavailable', async () => {
+    const metadataDir = path.join(repoRoot, '.git')
+    const worktreePath = path.join(repoParent, 'repo-task-stale')
+    fs.mkdirSync(metadataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(metadataDir, 'takoyaki-tasks.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            taskTitle: 'Stale Task',
+            branchName: 'feature/stale-task',
+            baseBranch: 'main',
+            worktreePath,
+            createdAt: 1,
+          },
+        ],
+      }),
+      'utf-8',
+    )
+    mockGit(worktreePath, ['status', '--porcelain=v1', '-uall'], '')
+    mockGit(repoRoot, ['worktree', 'remove', worktreePath], '', `fatal: '${worktreePath}' is not a working tree`)
+    mockGit(repoRoot, ['worktree', 'prune'], '')
+
+    await expect(service.removeTask(repoRoot, worktreePath)).resolves.toEqual({
+      ok: true,
+      blocked: false,
+      detail: 'Task entry removed. Worktree was already unavailable. Branch was kept.',
     })
     expect(fs.existsSync(path.join(metadataDir, 'takoyaki-tasks.json'))).toBe(false)
   })
@@ -246,5 +333,49 @@ describe('GitWorktreeService', () => {
     const metadata = JSON.parse(fs.readFileSync(path.join(metadataDir, 'takoyaki-tasks.json'), 'utf-8'))
     expect(metadata.tasks).toHaveLength(1)
     expect(metadata.tasks[0].taskTitle).toBe('Live Task')
+  })
+
+  it('detects when an opened folder is a managed task worktree', async () => {
+    const managedPath = path.join(repoParent, 'repo-auth-refactor')
+    const worktreeGitDir = path.join(repoRoot, '.git', 'worktrees', 'repo-auth-refactor')
+    const metadataDir = path.join(repoRoot, '.git')
+    fs.mkdirSync(managedPath, { recursive: true })
+    fs.mkdirSync(metadataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(metadataDir, 'takoyaki-tasks.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            taskTitle: 'Auth Refactor',
+            branchName: 'feature/auth-refactor',
+            baseBranch: 'main',
+            worktreePath: managedPath,
+            createdAt: 5,
+          },
+        ],
+      }),
+      'utf-8',
+    )
+
+    mockGit(managedPath, ['rev-parse', '--show-toplevel'], `${managedPath}\n`)
+    mockGit(managedPath, ['rev-parse', '--path-format=absolute', '--git-common-dir'], `${metadataDir}\n`)
+    mockGit(managedPath, ['rev-parse', '--path-format=absolute', '--absolute-git-dir'], `${worktreeGitDir}\n`)
+
+    await expect(service.findManagedTaskForPath(managedPath)).resolves.toEqual({
+      projectRoot: repoRoot.replace(/\\/g, '/'),
+      taskTitle: 'Auth Refactor',
+      branchName: 'feature/auth-refactor',
+      baseBranch: 'main',
+      worktreePath: managedPath.replace(/\\/g, '/'),
+    })
+  })
+
+  it('does not treat the primary repo root as a managed task worktree', async () => {
+    const metadataDir = path.join(repoRoot, '.git')
+    mockGit(repoRoot, ['rev-parse', '--show-toplevel'], `${repoRoot}\n`)
+    mockGit(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir'], `${metadataDir}\n`)
+    mockGit(repoRoot, ['rev-parse', '--path-format=absolute', '--absolute-git-dir'], `${metadataDir}\n`)
+
+    await expect(service.findManagedTaskForPath(repoRoot)).resolves.toBeNull()
   })
 })
