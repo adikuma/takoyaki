@@ -53,6 +53,14 @@ export interface ManagedWorktree {
   createdAt: number | null
 }
 
+export interface ManagedTaskMatch {
+  projectRoot: string
+  taskTitle: string
+  branchName: string
+  baseBranch: string | null
+  worktreePath: string
+}
+
 function runGit(cwd: string, args: string[], timeoutMs = GIT_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -228,6 +236,43 @@ function uniqueWorktreePath(projectRoot: string, slug: string): string {
 }
 
 export class GitWorktreeService {
+  async findManagedTaskForPath(inputPath: string | null | undefined): Promise<ManagedTaskMatch | null> {
+    if (!inputPath) return null
+
+    const worktreePath = await this.detectRepoRoot(inputPath)
+    if (!worktreePath) return null
+
+    try {
+      const [commonDir, absoluteGitDir] = await Promise.all([
+        runGit(inputPath, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+        runGit(inputPath, ['rev-parse', '--path-format=absolute', '--absolute-git-dir']),
+      ])
+
+      const normalizedCommonDir = normalizePath(commonDir.trim())
+      const normalizedAbsoluteGitDir = normalizePath(absoluteGitDir.trim())
+      if (!normalizedCommonDir || !normalizedAbsoluteGitDir || normalizedCommonDir === normalizedAbsoluteGitDir) {
+        return null
+      }
+
+      const projectRoot = normalizePath(path.dirname(normalizedCommonDir))
+      if (!projectRoot || projectRoot === normalizePath(worktreePath)) return null
+
+      const metadata = readTaskMetadata(projectRoot)
+      const task = metadata.find((entry) => normalizePath(entry.worktreePath) === normalizePath(worktreePath))
+      if (!task) return null
+
+      return {
+        projectRoot,
+        taskTitle: task.taskTitle,
+        branchName: task.branchName,
+        baseBranch: task.baseBranch,
+        worktreePath: normalizePath(worktreePath),
+      }
+    } catch {
+      return null
+    }
+  }
+
   async detectRepoRoot(inputPath: string | null | undefined): Promise<string | null> {
     if (!inputPath) return null
     try {

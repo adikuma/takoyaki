@@ -839,7 +839,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                           }}
                         >
                           <div className="flex items-center gap-1">
-                            <span>task/{task.branchName?.replace('task/', '') || task.title}</span>
+                            <span>{getProjectBranchLabel(task)}</span>
                             {taskStatus && (
                               <span style={{ marginLeft: 4 }}>
                                 <StatusGlyph status={taskStatus} />

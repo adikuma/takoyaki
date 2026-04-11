@@ -214,15 +214,84 @@ async function refreshProjectGitState(projectId: string | null, cwdOverride?: st
   }
 }
 
+function gitWorkspacePath(workspaceId: string): string | null {
+  const workspace = workspaces.get(workspaceId)
+  if (!workspace || !workspace.gitEnabled) return null
+
+  const candidatePath =
+    workspace.kind === 'task'
+      ? workspace.workingDirectory || workspace.projectRoot
+      : workspace.projectRoot || workspace.workingDirectory
+
+  if (!candidatePath || !fs.existsSync(candidatePath)) return null
+  return candidatePath
+}
+
+async function refreshWorkspaceBranch(workspaceId: string | null): Promise<void> {
+  if (!workspaceId) return
+  const workspace = workspaces.get(workspaceId)
+  if (!workspace || !workspace.gitEnabled) return
+
+  const candidatePath = gitWorkspacePath(workspaceId)
+  if (!candidatePath) return
+
+  const branchName = await worktreeService.getCurrentBranch(candidatePath).catch(() => null)
+  workspaces.setWorkspaceBranchName(workspaceId, branchName)
+}
+
+function gitWorkspaceRefreshOrder(): string[] {
+  const gitWorkspaceIds = workspaces
+    .list()
+    .filter((workspace) => workspace.gitEnabled)
+    .map((workspace) => workspace.id)
+
+  if (!gitWorkspaceIds.length) return []
+
+  const ordered: string[] = []
+  const seen = new Set<string>()
+  const push = (workspaceId: string | null | undefined): void => {
+    if (!workspaceId || seen.has(workspaceId) || !gitWorkspaceIds.includes(workspaceId)) return
+    seen.add(workspaceId)
+    ordered.push(workspaceId)
+  }
+
+  const activeWorkspaceId = workspaces.activeWorkspaceId
+  push(activeWorkspaceId)
+
+  const activeWorkspace = activeWorkspaceId ? workspaces.get(activeWorkspaceId) : null
+  if (activeWorkspace?.kind === 'task') {
+    push(activeWorkspace.parentProjectId)
+  }
+
+  for (const workspaceId of gitWorkspaceIds) push(workspaceId)
+  return ordered
+}
+
+async function refreshRestoredGitBranches(): Promise<void> {
+  for (const workspaceId of gitWorkspaceRefreshOrder()) {
+    await refreshWorkspaceBranch(workspaceId)
+  }
+}
+
 function noteSelection(workspaceId: string | null): void {
   if (!workspaceId) return
   noteWorkspaceActivity(workspaceId)
   const workspace = workspaces.get(workspaceId)
-  if (workspace?.kind === 'project') {
-    if (workspace.gitEnabled) {
-      void recoverProjectTasks(workspaceId)
+  if (!workspace) return
+
+  if (workspace.gitEnabled) {
+    void refreshWorkspaceBranch(workspaceId)
+    if (workspace.kind === 'task' && workspace.parentProjectId) {
+      void refreshWorkspaceBranch(workspace.parentProjectId)
       return
     }
+    if (workspace.kind === 'project') {
+      void recoverProjectTasks(workspaceId)
+    }
+    return
+  }
+
+  if (workspace.kind === 'project') {
     void refreshProjectGitState(workspaceId)
   }
 }
@@ -236,6 +305,38 @@ async function openProjectFolder(): Promise<ReturnType<typeof workspaces.create>
   if (result.canceled || !result.filePaths[0]) return null
 
   const folderPath = result.filePaths[0]
+  const managedTask = await worktreeService.findManagedTaskForPath(folderPath)
+  if (managedTask) {
+    const existingParent = workspaces.findProjectByRoot(managedTask.projectRoot)
+    const parentWorkspace =
+      existingParent ||
+      workspaces.create(path.basename(managedTask.projectRoot), managedTask.projectRoot, managedTask.projectRoot, true)
+
+    const parentBranch = await worktreeService.getCurrentBranch(managedTask.projectRoot).catch(() => null)
+    workspaces.promoteProjectToGit(parentWorkspace.id, managedTask.projectRoot, parentBranch)
+
+    await recoverProjectTasks(parentWorkspace.id)
+
+    let taskWorkspace = workspaces.findTaskByPath(parentWorkspace.id, managedTask.worktreePath)
+    if (!taskWorkspace) {
+      const recovered = workspaces.syncRecoveredTasks(parentWorkspace.id, [
+        {
+          title: managedTask.taskTitle,
+          worktreePath: managedTask.worktreePath,
+          branchName: managedTask.branchName,
+          baseBranch: managedTask.baseBranch,
+        },
+      ])
+      taskWorkspace = recovered.find((workspace) => workspace.workingDirectory === managedTask.worktreePath) || null
+    }
+
+    if (taskWorkspace) {
+      workspaces.select(taskWorkspace.id)
+      noteWorkspaceActivity(taskWorkspace.id)
+      return taskWorkspace
+    }
+  }
+
   const repoRoot = await worktreeService.detectRepoRoot(folderPath)
   const projectRoot = repoRoot || folderPath
   const title = path.basename(projectRoot)
@@ -633,6 +734,7 @@ app.whenReady().then(async () => {
   await socketServer.start()
   socketServer.startHealthCheck()
   createWindow()
+  void refreshRestoredGitBranches()
 })
 
 app.on('window-all-closed', () => {

@@ -146,6 +146,23 @@ export class WorkspaceManager extends EventEmitter {
     return this.list().filter((workspace) => workspace.kind === 'project')
   }
 
+  findProjectByRoot(projectRoot: string): Workspace | null {
+    const normalizedRoot = normalizePath(projectRoot)
+    for (const entry of this.state.values()) {
+      const workspace = entry.workspace
+      if (workspace.kind !== 'project') continue
+      if (normalizePath(workspace.projectRoot || workspace.workingDirectory) === normalizedRoot) {
+        return this.serializeWorkspace(entry)
+      }
+    }
+    return null
+  }
+
+  findTaskByPath(parentProjectId: string, worktreePath: string): Workspace | null {
+    const entry = this.findTaskEntry(parentProjectId, worktreePath, '')
+    return entry ? this.serializeWorkspace(entry) : null
+  }
+
   get(id: string): Workspace | null {
     const entry = this.state.get(id)
     return entry ? this.serializeWorkspace(entry) : null
@@ -177,6 +194,14 @@ export class WorkspaceManager extends EventEmitter {
     entry.workspace.projectRoot = projectRoot
     this.emitChange()
     return true
+  }
+
+  setWorkspaceBranchName(workspaceId: string, branchName: string | null): Workspace | null {
+    const entry = this.state.get(workspaceId)
+    if (!entry || entry.workspace.branchName === branchName) return entry ? this.serializeWorkspace(entry) : null
+    entry.workspace.branchName = branchName
+    this.emitChange()
+    return this.serializeWorkspace(entry)
   }
 
   promoteProjectToGit(workspaceId: string, projectRoot: string, branchName: string | null): Workspace | null {
@@ -276,6 +301,21 @@ export class WorkspaceManager extends EventEmitter {
           changed = true
         }
         recovered.push(this.serializeWorkspace(existing))
+        continue
+      }
+
+      const standalone = this.findStandaloneProjectEntry(task.worktreePath)
+      if (standalone) {
+        standalone.workspace.title = task.title
+        standalone.workspace.kind = 'task'
+        standalone.workspace.parentProjectId = parentProjectId
+        standalone.workspace.gitEnabled = true
+        standalone.workspace.branchName = task.branchName
+        standalone.workspace.baseBranch = task.baseBranch
+        standalone.workspace.workingDirectory = task.worktreePath
+        standalone.workspace.projectRoot = task.worktreePath
+        recovered.push(this.serializeWorkspace(standalone))
+        changed = true
         continue
       }
 
@@ -725,11 +765,23 @@ export class WorkspaceManager extends EventEmitter {
   }
 
   private findTaskEntry(parentProjectId: string, worktreePath: string, branchName: string): WorkspaceState | null {
+    const normalizedPath = normalizePath(worktreePath)
     for (const entry of this.state.values()) {
       const workspace = entry.workspace
       if (workspace.kind !== 'task' || workspace.parentProjectId !== parentProjectId) continue
-      if (workspace.workingDirectory === worktreePath) return entry
-      if (workspace.branchName === branchName) return entry
+      if (normalizePath(workspace.workingDirectory) === normalizedPath) return entry
+      if (branchName && workspace.branchName === branchName) return entry
+    }
+    return null
+  }
+
+  private findStandaloneProjectEntry(worktreePath: string): WorkspaceState | null {
+    const normalizedPath = normalizePath(worktreePath)
+    for (const entry of this.state.values()) {
+      const workspace = entry.workspace
+      if (workspace.kind !== 'project' || workspace.parentProjectId) continue
+      if (normalizePath(workspace.projectRoot || workspace.workingDirectory) === normalizedPath) return entry
+      if (normalizePath(workspace.workingDirectory) === normalizedPath) return entry
     }
     return null
   }

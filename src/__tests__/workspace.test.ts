@@ -147,6 +147,37 @@ describe('WorkspaceManager', () => {
     })
   })
 
+  describe('setWorkspaceBranchName', () => {
+    it('updates a git-backed project branch in place', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+
+      const updated = wm.setWorkspaceBranchName(project.id, 'main')
+
+      expect(updated?.branchName).toBe('main')
+      expect(wm.get(project.id)?.branchName).toBe('main')
+    })
+
+    it('updates a task branch in place', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+      const task = wm.createTask(project.id, 'auth refactor', '/tmp/task-auth', 'task/auth-refactor', 'main')
+
+      const updated = wm.setWorkspaceBranchName(task!.id, 'feature/auth-refactor')
+
+      expect(updated?.branchName).toBe('feature/auth-refactor')
+      expect(wm.get(task!.id)?.branchName).toBe('feature/auth-refactor')
+    })
+
+    it('accepts null for detached workspaces', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+
+      wm.setWorkspaceBranchName(project.id, 'main')
+      const updated = wm.setWorkspaceBranchName(project.id, null)
+
+      expect(updated?.branchName).toBeNull()
+      expect(wm.get(project.id)?.branchName).toBeNull()
+    })
+  })
+
   describe('syncRecoveredTasks', () => {
     it('creates recovered task workspaces without changing the active project', () => {
       const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
@@ -206,6 +237,27 @@ describe('WorkspaceManager', () => {
       expect(recovered[0].id).toBe(task?.id)
       expect(wm.get(task!.id)?.title).toBe('Recovered Auth Refactor')
       expect(wm.get(task!.id)?.baseBranch).toBe('develop')
+    })
+
+    it('converts a duplicate standalone worktree project into the recovered task row', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+      const standalone = wm.create('slapback-auth-refactor', '/tmp/task-auth', '/tmp/task-auth', true)
+
+      const recovered = wm.syncRecoveredTasks(project.id, [
+        {
+          title: 'Recovered Auth Refactor',
+          worktreePath: '/tmp/task-auth',
+          branchName: 'feature/auth-refactor',
+          baseBranch: 'develop',
+        },
+      ])
+
+      expect(recovered[0].id).toBe(standalone.id)
+      expect(wm.get(standalone.id)?.kind).toBe('task')
+      expect(wm.get(standalone.id)?.parentProjectId).toBe(project.id)
+      expect(wm.get(standalone.id)?.title).toBe('Recovered Auth Refactor')
+      expect(wm.get(standalone.id)?.branchName).toBe('feature/auth-refactor')
+      expect(wm.listProjects().map((workspace) => workspace.id)).toEqual([project.id])
     })
   })
 

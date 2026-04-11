@@ -247,4 +247,48 @@ describe('GitWorktreeService', () => {
     expect(metadata.tasks).toHaveLength(1)
     expect(metadata.tasks[0].taskTitle).toBe('Live Task')
   })
+
+  it('detects when an opened folder is a managed task worktree', async () => {
+    const managedPath = path.join(repoParent, 'repo-auth-refactor')
+    const worktreeGitDir = path.join(repoRoot, '.git', 'worktrees', 'repo-auth-refactor')
+    const metadataDir = path.join(repoRoot, '.git')
+    fs.mkdirSync(managedPath, { recursive: true })
+    fs.mkdirSync(metadataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(metadataDir, 'takoyaki-tasks.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            taskTitle: 'Auth Refactor',
+            branchName: 'feature/auth-refactor',
+            baseBranch: 'main',
+            worktreePath: managedPath,
+            createdAt: 5,
+          },
+        ],
+      }),
+      'utf-8',
+    )
+
+    mockGit(managedPath, ['rev-parse', '--show-toplevel'], `${managedPath}\n`)
+    mockGit(managedPath, ['rev-parse', '--path-format=absolute', '--git-common-dir'], `${metadataDir}\n`)
+    mockGit(managedPath, ['rev-parse', '--path-format=absolute', '--absolute-git-dir'], `${worktreeGitDir}\n`)
+
+    await expect(service.findManagedTaskForPath(managedPath)).resolves.toEqual({
+      projectRoot: repoRoot.replace(/\\/g, '/'),
+      taskTitle: 'Auth Refactor',
+      branchName: 'feature/auth-refactor',
+      baseBranch: 'main',
+      worktreePath: managedPath.replace(/\\/g, '/'),
+    })
+  })
+
+  it('does not treat the primary repo root as a managed task worktree', async () => {
+    const metadataDir = path.join(repoRoot, '.git')
+    mockGit(repoRoot, ['rev-parse', '--show-toplevel'], `${repoRoot}\n`)
+    mockGit(repoRoot, ['rev-parse', '--path-format=absolute', '--git-common-dir'], `${metadataDir}\n`)
+    mockGit(repoRoot, ['rev-parse', '--path-format=absolute', '--absolute-git-dir'], `${metadataDir}\n`)
+
+    await expect(service.findManagedTaskForPath(repoRoot)).resolves.toBeNull()
+  })
 })
