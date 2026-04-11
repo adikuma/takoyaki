@@ -62,6 +62,8 @@ type PreloadTerminalSessionStatus = 'running' | 'exited' | 'error'
 interface PreloadTerminalSnapshot {
   terminalId: string
   cwd: string
+  title: string | null
+  recentCommand: string | null
   cols: number
   rows: number
   status: PreloadTerminalSessionStatus
@@ -71,6 +73,14 @@ interface PreloadTerminalSnapshot {
   exitCode: number | null
   exitSignal: number | null
   lastEventId: number
+  updatedAt: string
+}
+
+interface PreloadTerminalMetadata {
+  terminalId: string
+  cwd: string
+  title: string | null
+  recentCommand: string | null
   updatedAt: string
 }
 
@@ -88,6 +98,15 @@ type PreloadTerminalEvent =
       createdAt: string
       type: 'output'
       data: string
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'metadata'
+      cwd: string
+      title: string | null
+      recentCommand: string | null
     }
   | {
       terminalId: string
@@ -152,6 +171,7 @@ const api = {
   terminal: {
     create: (cwd?: string) => ipcRenderer.invoke('terminal:create', cwd),
     open: (id: string) => ipcRenderer.invoke('terminal:open', id) as Promise<PreloadTerminalSnapshot | null>,
+    metadata: (id: string) => ipcRenderer.invoke('terminal:metadata', id) as Promise<PreloadTerminalMetadata | null>,
     write: (id: string, data: string) => ipcRenderer.invoke('terminal:write', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
     destroy: (id: string) => ipcRenderer.invoke('terminal:destroy', id),

@@ -13,11 +13,13 @@ import {
   StatusGlyph,
 } from './SidebarPrimitives'
 import { canUseProjectGitActions, getProjectBranchLabel } from './sidebar-utils'
+import { getProjectAccent, type ProjectAccent } from './project-palette'
 
 interface ProjectTreeProps {
   projects: Workspace[]
   tasksByProjectId: Map<string, Workspace[]>
   activeId: string | null
+  theme: 'dark' | 'light'
   surfaceStatuses: Record<string, HookSurfaceStatus>
   pinnedProjectRoots: string[]
   onSelectWorkspace: (workspaceId: string) => void
@@ -33,6 +35,7 @@ export function ProjectTree({
   projects,
   tasksByProjectId,
   activeId,
+  theme,
   surfaceStatuses,
   pinnedProjectRoots,
   onSelectWorkspace,
@@ -54,6 +57,7 @@ export function ProjectTree({
           workspace={workspace}
           tasks={tasksByProjectId.get(workspace.id) || []}
           activeId={activeId}
+          theme={theme}
           surfaceStatuses={surfaceStatuses}
           pinnedProjectRoots={pinnedProjectRoots}
           onSelectWorkspace={onSelectWorkspace}
@@ -73,6 +77,7 @@ function ProjectTreeSection({
   workspace,
   tasks,
   activeId,
+  theme,
   surfaceStatuses,
   pinnedProjectRoots,
   onSelectWorkspace,
@@ -86,6 +91,7 @@ function ProjectTreeSection({
   workspace: Workspace
   tasks: Workspace[]
   activeId: string | null
+  theme: 'dark' | 'light'
   surfaceStatuses: Record<string, HookSurfaceStatus>
   pinnedProjectRoots: string[]
   onSelectWorkspace: (workspaceId: string) => void
@@ -103,6 +109,7 @@ function ProjectTreeSection({
   const status = aggregateClaudeWorkspaceStatus(surfaceStatuses, workspace.surfaceIds || [])
   const taskLabel = tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'}` : null
   const branchLabel = getProjectBranchLabel(workspace)
+  const projectAccent = getProjectAccent(projectRoot || workspace.id, theme)
   const projectMenuItems: RowMenuItem[] = [
     {
       label: 'New task',
@@ -145,12 +152,22 @@ function ProjectTreeSection({
     <div>
       <div
         onClick={() => onSelectWorkspace(workspace.id)}
-        className="group cursor-pointer"
-        style={{ padding: '10px 14px' }}
+        className="group relative cursor-pointer rounded-[10px] transition-colors duration-[120ms]"
+        style={{
+          padding: '10px 14px',
+          background: projectSelected ? projectAccent.activeWash : 'transparent',
+        }}
+        onMouseEnter={(event) => {
+          if (projectSelected) return
+          event.currentTarget.style.background = projectAccent.hoverWash
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.background = projectSelected ? projectAccent.activeWash : 'transparent'
+        }}
       >
         <div className="flex items-start gap-3">
           <div className="mt-0.5 flex-shrink-0">
-            <FolderIcon active={projectSelected} />
+            <FolderIcon color={projectAccent.icon} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
@@ -195,6 +212,7 @@ function ProjectTreeSection({
         <TaskRow
           key={task.id}
           task={task}
+          projectAccent={projectAccent}
           isLast={taskIndex === tasks.length - 1}
           activeId={activeId}
           surfaceStatuses={surfaceStatuses}
@@ -210,6 +228,7 @@ function ProjectTreeSection({
 
 function TaskRow({
   task,
+  projectAccent,
   isLast,
   activeId,
   surfaceStatuses,
@@ -219,6 +238,7 @@ function TaskRow({
   onConfirmRemoveTask,
 }: {
   task: Workspace
+  projectAccent: ProjectAccent
   isLast: boolean
   activeId: string | null
   surfaceStatuses: Record<string, HookSurfaceStatus>
@@ -270,7 +290,7 @@ function TaskRow({
             top: 0,
             height: '50%',
             width: 1,
-            background: colors.separator,
+            background: projectAccent.connector,
           }}
         />
         <div
@@ -280,7 +300,7 @@ function TaskRow({
             top: '50%',
             width: 10,
             height: 1,
-            background: colors.separator,
+            background: projectAccent.connector,
           }}
         />
         {!isLast && (
@@ -291,14 +311,22 @@ function TaskRow({
               top: '50%',
               bottom: 0,
               width: 1,
-              background: colors.separator,
+              background: projectAccent.connector,
             }}
           />
         )}
       </div>
-      <div className="flex items-start gap-2.5" style={{ flex: 1, minWidth: 0, padding: '8px 10px' }}>
+      <div
+        className="flex items-start gap-2.5 rounded-[10px] transition-colors duration-[120ms]"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: '8px 10px',
+          background: taskSelected ? projectAccent.taskWash : 'transparent',
+        }}
+      >
         <div className="mt-0.5 flex-shrink-0">
-          <GitBranchIcon size={sizes.iconSm} color={taskSelected ? colors.accentSoft : colors.textMuted} />
+          <GitBranchIcon size={sizes.iconSm} color={taskSelected ? projectAccent.icon : projectAccent.taskIcon} />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">

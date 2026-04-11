@@ -124,6 +124,8 @@ export type TerminalSessionStatus = 'running' | 'exited' | 'error'
 export interface TerminalSnapshot {
   terminalId: string
   cwd: string
+  title: string | null
+  recentCommand: string | null
   cols: number
   rows: number
   status: TerminalSessionStatus
@@ -133,6 +135,14 @@ export interface TerminalSnapshot {
   exitCode: number | null
   exitSignal: number | null
   lastEventId: number
+  updatedAt: string
+}
+
+export interface TerminalMetadata {
+  terminalId: string
+  cwd: string
+  title: string | null
+  recentCommand: string | null
   updatedAt: string
 }
 
@@ -150,6 +160,15 @@ export type TerminalEvent =
       createdAt: string
       type: 'output'
       data: string
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
+      type: 'metadata'
+      cwd: string
+      title: string | null
+      recentCommand: string | null
     }
   | {
       terminalId: string
@@ -213,6 +232,7 @@ declare global {
       terminal: {
         create: (cwd?: string) => Promise<{ id: string; pid: number; cwd: string }>
         open: (id: string) => Promise<TerminalSnapshot | null>
+        metadata: (id: string) => Promise<TerminalMetadata | null>
         write: (id: string, data: string) => Promise<boolean>
         resize: (id: string, cols: number, rows: number) => Promise<void>
         destroy: (id: string) => Promise<boolean>

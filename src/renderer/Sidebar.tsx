@@ -212,6 +212,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
         projects={filtered}
         tasksByProjectId={tasksByProjectId}
         activeId={activeId}
+        theme={theme}
         surfaceStatuses={surfaceStatuses}
         pinnedProjectRoots={pinnedProjectRoots}
         onSelectWorkspace={handleSelectWorkspace}

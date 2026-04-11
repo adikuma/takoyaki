@@ -4,15 +4,9 @@ import { colors, sizes } from '../design'
 import { Tooltip } from '../Tooltip'
 import { getClaudeAttentionLabel, type ClaudeWorkspaceStatus } from '../../shared/claude-status'
 
-// folder icon that lights up amber when the project is selected
-export function FolderIcon({ active }: { active?: boolean }) {
+export function FolderIcon({ color }: { color?: string }) {
   return (
-    <FolderClosed
-      size={sizes.iconBase}
-      strokeWidth={1.8}
-      color={active ? colors.accentSoft : colors.textMuted}
-      style={{ flexShrink: 0 }}
-    />
+    <FolderClosed size={sizes.iconBase} strokeWidth={1.8} color={color || colors.textMuted} style={{ flexShrink: 0 }} />
   )
 }
 

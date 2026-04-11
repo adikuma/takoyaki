@@ -76,6 +76,7 @@ interface Props {
   terminalId: string
   fontSize: number
   frame: TerminalFrame | null
+  paneLabel?: string | null
   isFocused?: boolean
 }
 
@@ -124,7 +125,7 @@ function PaneToolbarButton({
   )
 }
 
-export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: Props) {
+export function Terminal({ surfaceId, terminalId, fontSize, frame, paneLabel, isFocused }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -294,6 +295,8 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
           syncScrollAffordances(term)
           return
         }
+
+        if (event.type === 'metadata') return
 
         if (event.type === 'output') {
           await writeToTerminal(term, event.data)
@@ -675,13 +678,25 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
 
       {isVisible && (
         <div
-          className="shrink-0 flex items-center justify-end px-2 py-1"
+          className="shrink-0 flex items-center justify-between gap-3 px-2 py-1"
           style={{
             minHeight: 30,
             background: isFocused && isVisible ? colors.bgSubtle : colors.terminalBg,
             borderBottom: `1px solid ${isFocused && isVisible ? colors.separator : 'transparent'}`,
           }}
         >
+          <div
+            className="min-w-0 flex-1 truncate pl-1"
+            style={{
+              color: isFocused ? colors.textPrimary : colors.textSecondary,
+              fontFamily: fonts.ui,
+              fontSize: 12,
+              fontWeight: 500,
+            }}
+            title={paneLabel || undefined}
+          >
+            {paneLabel || ''}
+          </div>
           <div className="inline-flex items-center gap-0.5" onMouseDown={(event) => event.stopPropagation()}>
             <PaneToolbarButton label="Split right" onClick={handleSplitRight}>
               <Columns2 size={sizes.iconSm} strokeWidth={1.8} />

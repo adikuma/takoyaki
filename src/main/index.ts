@@ -448,6 +448,7 @@ function setupIpc(): void {
   // terminal
   ipcMain.handle('terminal:create', (_, cwd?: string) => terminals.create(cwd))
   ipcMain.handle('terminal:open', (_, id: string) => terminals.open(id))
+  ipcMain.handle('terminal:metadata', (_, id: string) => terminals.metadata(id))
   ipcMain.handle('terminal:write', (_, id: string, data: string) => {
     // track keyboard input for workspace activity
     const wsId = workspaces.workspaceForTerminal(id)

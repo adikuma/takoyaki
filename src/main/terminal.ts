@@ -37,11 +37,21 @@ export interface TerminalInfo {
   cwd: string
 }
 
+export interface TerminalMetadata {
+  terminalId: string
+  cwd: string
+  title: string | null
+  recentCommand: string | null
+  updatedAt: string
+}
+
 export type TerminalSessionStatus = 'running' | 'exited' | 'error'
 
 export interface TerminalSnapshot {
   terminalId: string
   cwd: string
+  title: string | null
+  recentCommand: string | null
   cols: number
   rows: number
   status: TerminalSessionStatus
@@ -78,6 +88,15 @@ export type TerminalEvent =
       terminalId: string
       eventId: number
       createdAt: string
+      type: 'metadata'
+      cwd: string
+      title: string | null
+      recentCommand: string | null
+    }
+  | {
+      terminalId: string
+      eventId: number
+      createdAt: string
       type: 'exited'
       exitCode: number | null
       exitSignal: number | null
@@ -105,6 +124,9 @@ interface TerminalSession {
   lastEventId: number
   updatedAt: string
   metadataBuffer: string
+  title: string | null
+  recentCommand: string | null
+  inputBuffer: string
   pendingActions: PendingTerminalAction[]
   isDraining: boolean
 }
@@ -164,6 +186,9 @@ export class TerminalManager extends EventEmitter {
       lastEventId: 0,
       updatedAt: new Date().toISOString(),
       metadataBuffer: '',
+      title: null,
+      recentCommand: null,
+      inputBuffer: '',
       pendingActions: [],
       isDraining: false,
     }
@@ -195,9 +220,26 @@ export class TerminalManager extends EventEmitter {
     return session ? this.snapshotOf(session) : null
   }
 
+  metadata(id: string): TerminalMetadata | null {
+    const session = this.sessions.get(id)
+    return session ? this.metadataOf(session) : null
+  }
+
   write(id: string, data: string): boolean {
-    const proc = this.sessions.get(id)?.process
-    if (!proc) return false
+    const session = this.sessions.get(id)
+    const proc = session?.process
+    if (!proc || !session) return false
+
+    if (this.captureRecentCommand(session, data)) {
+      session.updatedAt = new Date().toISOString()
+      this.emitEvent(session, {
+        type: 'metadata',
+        cwd: session.info.cwd,
+        title: session.title,
+        recentCommand: session.recentCommand,
+      })
+    }
+
     proc.write(data)
     return true
   }
@@ -243,6 +285,8 @@ export class TerminalManager extends EventEmitter {
     return {
       terminalId: session.info.id,
       cwd: session.info.cwd,
+      title: session.title,
+      recentCommand: session.recentCommand,
       cols: session.cols,
       rows: session.rows,
       status: session.status,
@@ -252,6 +296,16 @@ export class TerminalManager extends EventEmitter {
       exitCode: session.exitCode,
       exitSignal: session.exitSignal,
       lastEventId: session.lastEventId,
+      updatedAt: session.updatedAt,
+    }
+  }
+
+  private metadataOf(session: TerminalSession): TerminalMetadata {
+    return {
+      terminalId: session.info.id,
+      cwd: session.info.cwd,
+      title: session.title,
+      recentCommand: session.recentCommand,
       updatedAt: session.updatedAt,
     }
   }
@@ -292,6 +346,14 @@ export class TerminalManager extends EventEmitter {
           type: 'output',
           data: action.data,
         })
+        if (metadata.metadataChanged) {
+          this.emitEvent(session, {
+            type: 'metadata',
+            cwd: session.info.cwd,
+            title: session.title,
+            recentCommand: session.recentCommand,
+          })
+        }
         if (metadata.sawPromptMarker) {
           this.emit('prompt', {
             terminalId: session.info.id,
@@ -341,6 +403,7 @@ export class TerminalManager extends EventEmitter {
     payload:
       | { type: 'started' }
       | { type: 'output'; data: string }
+      | { type: 'metadata'; cwd: string; title: string | null; recentCommand: string | null }
       | { type: 'exited'; exitCode: number | null; exitSignal: number | null }
       | { type: 'error'; message: string },
   ): void {
@@ -362,10 +425,11 @@ export class TerminalManager extends EventEmitter {
   private parseTerminalMetadata(
     session: TerminalSession,
     data: string,
-  ): { remainingBuffer: string; sawPromptMarker: boolean } {
+  ): { remainingBuffer: string; sawPromptMarker: boolean; metadataChanged: boolean } {
     let lastIndex = 0
     let match: RegExpExecArray | null
     let sawPromptMarker = false
+    let metadataChanged = false
 
     // eslint-disable-next-line no-control-regex
     const cwdRegex = /\x1b\]633;takoyaki-cwd=([^\x07]*?)\x07/g
@@ -373,7 +437,7 @@ export class TerminalManager extends EventEmitter {
       lastIndex = match.index + match[0].length
       sawPromptMarker = true
       try {
-        this.applyTrackedCwd(session, decodeURIComponent(match[1]))
+        metadataChanged = this.applyTrackedCwd(session, decodeURIComponent(match[1])) || metadataChanged
       } catch {
         // parse failed, ignore malformed sequence
       }
@@ -384,25 +448,77 @@ export class TerminalManager extends EventEmitter {
     while ((match = oscRegex.exec(data)) !== null) {
       lastIndex = Math.max(lastIndex, match.index + match[0].length)
       const title = match[1]
+      metadataChanged = this.applyTrackedTitle(session, title.trim()) || metadataChanged
       const psMatch = title.match(/^PS\s+([A-Za-z]:\\.+)/)
-      if (psMatch) this.applyTrackedCwd(session, psMatch[1].trim())
+      if (psMatch) metadataChanged = this.applyTrackedCwd(session, psMatch[1].trim()) || metadataChanged
     }
 
     const lastOsc = data.lastIndexOf('\x1b]')
     if (lastOsc >= lastIndex && !data.substring(lastOsc).includes('\x07')) {
-      return { remainingBuffer: data.substring(lastOsc), sawPromptMarker }
+      return { remainingBuffer: data.substring(lastOsc), sawPromptMarker, metadataChanged }
     }
-    return { remainingBuffer: '', sawPromptMarker }
+    return { remainingBuffer: '', sawPromptMarker, metadataChanged }
   }
 
-  private applyTrackedCwd(session: TerminalSession, cwd: string): void {
+  private applyTrackedCwd(session: TerminalSession, cwd: string): boolean {
     try {
-      if (!cwd || !existsSync(cwd) || !statSync(cwd).isDirectory()) return
+      if (!cwd || !existsSync(cwd) || !statSync(cwd).isDirectory()) return false
       if (session.info.cwd !== cwd) {
         session.info.cwd = cwd
+        return true
       }
     } catch {
       // cwd validation failed, ignore
     }
+    return false
+  }
+
+  private applyTrackedTitle(session: TerminalSession, title: string): boolean {
+    const normalizedTitle = title || null
+    if (session.title === normalizedTitle) return false
+    session.title = normalizedTitle
+    return true
+  }
+
+  private captureRecentCommand(session: TerminalSession, data: string): boolean {
+    // eslint-disable-next-line no-control-regex
+    const csiSequenceRegex = /\x1b\[[0-?]*[ -/]*[@-~]/g
+    // eslint-disable-next-line no-control-regex
+    const oscSequenceRegex = /\x1b\][^\x07]*(?:\x07)?/g
+    // eslint-disable-next-line no-control-regex
+    const escapePrefixRegex = /\x1b./g
+    const sanitizedInput = data
+      .replace(csiSequenceRegex, '')
+      .replace(oscSequenceRegex, '')
+      .replace(escapePrefixRegex, '')
+
+    let metadataChanged = false
+
+    for (const character of sanitizedInput) {
+      if (character === '\r' || character === '\n') {
+        const normalizedCommand = session.inputBuffer.replace(/\s+/g, ' ').trim()
+        session.inputBuffer = ''
+        if (normalizedCommand && session.recentCommand !== normalizedCommand) {
+          session.recentCommand = normalizedCommand
+          metadataChanged = true
+        }
+        continue
+      }
+
+      if (character === '\u0003' || character === '\u0015') {
+        session.inputBuffer = ''
+        continue
+      }
+
+      if (character === '\b' || character === '\u007f') {
+        session.inputBuffer = session.inputBuffer.slice(0, -1)
+        continue
+      }
+
+      if (character < ' ') continue
+      session.inputBuffer = `${session.inputBuffer}${character}`.slice(-512)
+    }
+
+    return metadataChanged
   }
 }

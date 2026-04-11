@@ -75,6 +75,8 @@ describe('TerminalManager', () => {
     expect(snapshot).toMatchObject({
       terminalId: info.id,
       cwd: info.cwd,
+      title: null,
+      recentCommand: null,
       cols: 120,
       rows: 30,
       status: 'running',
@@ -111,6 +113,41 @@ describe('TerminalManager', () => {
       terminalId: info.id,
       cwd,
     })
+  })
+
+  it('tracks terminal title metadata from osc output', async () => {
+    const events: TerminalEvent[] = []
+    tm.on('event', (event: TerminalEvent) => {
+      events.push(event)
+    })
+
+    const info = tm.create()
+    latestPty()._emitter.emit('data', '\x1b]0;Codex - Takoyaki\x07')
+    await settleTerminal()
+
+    const snapshot = tm.open(info.id)
+    expect(snapshot?.title).toBe('Codex - Takoyaki')
+
+    const metadataEvent = events.find((event) => event.type === 'metadata')
+    if (!metadataEvent || metadataEvent.type !== 'metadata') throw new Error('expected metadata event')
+    expect(metadataEvent.title).toBe('Codex - Takoyaki')
+  })
+
+  it('tracks the most recent submitted command as terminal metadata', () => {
+    const events: TerminalEvent[] = []
+    tm.on('event', (event: TerminalEvent) => {
+      events.push(event)
+    })
+
+    const info = tm.create()
+    expect(tm.write(info.id, 'codex --continue\r')).toBe(true)
+
+    const snapshot = tm.open(info.id)
+    expect(snapshot?.recentCommand).toBe('codex --continue')
+
+    const metadataEvent = events.at(-1)
+    if (!metadataEvent || metadataEvent.type !== 'metadata') throw new Error('expected metadata event')
+    expect(metadataEvent.recentCommand).toBe('codex --continue')
   })
 
   it('emits ordered started output and exited events', async () => {

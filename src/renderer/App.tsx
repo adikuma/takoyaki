@@ -9,7 +9,37 @@ import { Settings } from './Settings'
 import { Review } from './Review'
 import { button, colors, fonts, sizes } from './design'
 import { collectLeaves, collectWorkspaceTerminals, equalTerminalFrames } from './terminal-layout'
-import type { PaneTree, WorkspaceSnapshot } from './types'
+import { resolvePaneLabels } from './pane-labels'
+import type { PaneTree, TerminalMetadata, WorkspaceSnapshot } from './types'
+
+function snapshotToTerminalMetadata(snapshot: {
+  terminalId: string
+  cwd: string
+  title: string | null
+  recentCommand: string | null
+  updatedAt: string
+}): TerminalMetadata {
+  return {
+    terminalId: snapshot.terminalId,
+    cwd: snapshot.cwd,
+    title: snapshot.title,
+    recentCommand: snapshot.recentCommand,
+    updatedAt: snapshot.updatedAt,
+  }
+}
+
+function sameTerminalMetadata(
+  first: TerminalMetadata | undefined,
+  second: TerminalMetadata | null | undefined,
+): boolean {
+  if (!first || !second) return false
+  return (
+    first.cwd === second.cwd &&
+    first.title === second.title &&
+    first.recentCommand === second.recentCommand &&
+    first.updatedAt === second.updatedAt
+  )
+}
 
 function PaneSlot({ surfaceId }: { surfaceId: string }) {
   return <div className="h-full w-full min-h-0" data-surface-slot={surfaceId} />
@@ -80,6 +110,7 @@ function EmptyWorkspaceToolbar({ workspaceId }: { workspaceId: string }) {
 export function App() {
   const workspaces = useStore((s) => s.workspaces)
   const activeId = useStore((s) => s.activeWorkspaceId)
+  const surfaceStatuses = useStore((s) => s.surfaceStatuses)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
   const loadPinnedProjects = useStore((s) => s.loadPinnedProjects)
   const loadEditorState = useStore((s) => s.loadEditorState)
@@ -105,6 +136,7 @@ export function App() {
   const [terminalFrames, setTerminalFrames] = useState<
     Record<string, { top: number; left: number; width: number; height: number }>
   >({})
+  const [terminalMetadataById, setTerminalMetadataById] = useState<Record<string, TerminalMetadata>>({})
   const selectWorkspace = useStore((s) => s.selectWorkspace)
   const terminalViewportRef = useRef<HTMLDivElement>(null)
 
@@ -122,6 +154,10 @@ export function App() {
   const terminalViews = useMemo(
     () => collectWorkspaceTerminals(workspaces, workspaceTrees),
     [workspaces, workspaceTrees],
+  )
+  const paneLabels = useMemo(
+    () => resolvePaneLabels({ paneLeaves, terminalViews, surfaceStatuses, terminalMetadataById }),
+    [paneLeaves, surfaceStatuses, terminalMetadataById, terminalViews],
   )
 
   const rememberTree = useCallback((workspaceId: string | null, nextTree: PaneTree | null) => {
@@ -201,6 +237,32 @@ export function App() {
   }, [workspaces])
 
   useEffect(() => {
+    const validTerminalIds = new Set(terminalViews.map((terminal) => terminal.terminalId))
+    setTerminalMetadataById((current) => {
+      const nextEntries = Object.entries(current).filter(([terminalId]) => validTerminalIds.has(terminalId))
+      if (nextEntries.length === Object.keys(current).length) return current
+      return Object.fromEntries(nextEntries)
+    })
+
+    if (!window.takoyaki?.terminal) return
+    let disposed = false
+
+    for (const terminal of terminalViews) {
+      void window.takoyaki.terminal.metadata(terminal.terminalId).then((metadata) => {
+        if (disposed || !metadata) return
+        setTerminalMetadataById((current) => {
+          if (sameTerminalMetadata(current[metadata.terminalId], metadata)) return current
+          return { ...current, [metadata.terminalId]: metadata }
+        })
+      })
+    }
+
+    return () => {
+      disposed = true
+    }
+  }, [terminalViews])
+
+  useEffect(() => {
     // load sidebar preferences once and let the store keep the renderer copy in sync
     void loadPinnedProjects()
   }, [loadPinnedProjects])
@@ -251,6 +313,35 @@ export function App() {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.status.onChange((statuses) => {
       useStore.getState().setSurfaceStatuses(statuses)
+    })
+    return cleanup
+  }, [])
+
+  useEffect(() => {
+    if (!window.takoyaki?.terminal) return
+    const cleanup = window.takoyaki.terminal.onEvent((event) => {
+      if (event.type === 'metadata') {
+        const nextMetadata = snapshotToTerminalMetadata({
+          terminalId: event.terminalId,
+          cwd: event.cwd,
+          title: event.title,
+          recentCommand: event.recentCommand,
+          updatedAt: event.createdAt,
+        })
+        setTerminalMetadataById((current) => {
+          if (sameTerminalMetadata(current[event.terminalId], nextMetadata)) return current
+          return { ...current, [event.terminalId]: nextMetadata }
+        })
+        return
+      }
+
+      if (event.type === 'started') {
+        const nextMetadata = snapshotToTerminalMetadata(event.snapshot)
+        setTerminalMetadataById((current) => {
+          if (sameTerminalMetadata(current[event.terminalId], nextMetadata)) return current
+          return { ...current, [event.terminalId]: nextMetadata }
+        })
+      }
     })
     return cleanup
   }, [])
@@ -386,7 +477,8 @@ export function App() {
                   background: 'transparent',
                   borderBottomColor: active ? colors.accent : 'transparent',
                   color: active ? colors.textPrimary : colors.textSecondary,
-                  fontFamily: fonts.mono,
+                  fontFamily: fonts.ui,
+                  fontWeight: 500,
                 }}
                 onMouseEnter={(event) => {
                   if (!active) event.currentTarget.style.color = colors.textPrimary
@@ -395,7 +487,7 @@ export function App() {
                   if (!active) event.currentTarget.style.color = colors.textSecondary
                 }}
               >
-                Pane {index + 1}
+                {paneLabels[leaf.surfaceId] || `Pane ${index + 1}`}
               </button>
             )
           })}
@@ -431,6 +523,7 @@ export function App() {
                 terminalId={terminal.terminalId}
                 fontSize={terminal.fontSize}
                 frame={frame}
+                paneLabel={paneLabels[terminal.surfaceId] || null}
                 isFocused={Boolean(
                   frame &&
                   activeView === 'terminal' &&
