@@ -166,6 +166,35 @@ describe('RpcHandler', () => {
       expect(res.error?.code).toBe('invalid_params')
     })
 
+    it('forwards rich status update metadata', () => {
+      const onStatusUpdate = vi.fn()
+      rpc.onStatusUpdate = onStatusUpdate
+
+      const res = rpc.handleV2({
+        id: 1,
+        method: 'status.update',
+        params: {
+          surface_id: 'surface-1',
+          status: 'running',
+          event_name: 'PermissionRequest',
+          tool_name: 'ExitPlanMode',
+          notification_type: 'permission_prompt',
+          session_source: 'resume',
+          subagent_type: 'Plan',
+        },
+      })
+
+      expect(res.ok).toBe(true)
+      expect(onStatusUpdate).toHaveBeenCalledWith('surface-1', {
+        status: 'running',
+        eventName: 'PermissionRequest',
+        toolName: 'ExitPlanMode',
+        notificationType: 'permission_prompt',
+        sessionSource: 'resume',
+        subagentType: 'Plan',
+      })
+    })
+
     it('returns method_not_found for unknown method', () => {
       const res = rpc.handleV2({ id: 1, method: 'does.not.exist' })
       expect(res.ok).toBe(false)

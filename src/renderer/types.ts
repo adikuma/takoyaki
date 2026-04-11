@@ -1,3 +1,10 @@
+import type {
+  ClaudeActivityState,
+  ClaudeRuntimeEvent,
+  ClaudeSurfaceStatus,
+  ManagedClaudeHookEvent,
+} from '../shared/claude-status'
+
 // domain types
 // workspace is the main unit of organization in the application
 export interface Workspace {
@@ -31,19 +38,11 @@ export interface WorkspaceSnapshot {
   focusedSurfaceId: string | null
 }
 
-// claude hook status states
-export type HookStatusState = 'running' | 'finished' | 'failed'
+export type HookStatusState = ClaudeActivityState
+export type HookSurfaceStatus = ClaudeSurfaceStatus
+export type HookRuntimeEvent = ClaudeRuntimeEvent
 
-// claude hook surface status
-export interface HookSurfaceStatus {
-  status: HookStatusState
-  eventName: string
-  receivedAt: number
-}
-// same thing but with surfaceId attached so Takoyaki knows WHICH pane it is at
-export interface HookRuntimeEvent extends HookSurfaceStatus {
-  surfaceId: string
-}
+export type HookCommandState = 'current' | 'missing' | 'invalid'
 
 // test result from claude hook
 export interface HookTestResult {
@@ -60,16 +59,8 @@ export interface HookDiagnostics {
   settingsExists: boolean
   notifyScriptExists: boolean
   // hook registration
-  hookStates: {
-    Stop: 'current' | 'missing' | 'invalid'
-    StopFailure: 'current' | 'missing' | 'invalid'
-    UserPromptSubmit: 'current' | 'missing' | 'invalid'
-  }
-  installedHooks: {
-    Stop: boolean
-    StopFailure: boolean
-    UserPromptSubmit: boolean
-  }
+  hookStates: Record<ManagedClaudeHookEvent, HookCommandState>
+  installedHooks: Record<ManagedClaudeHookEvent, boolean>
   //socket
   socketAddress: string | null
   nodeExecutable: string | null

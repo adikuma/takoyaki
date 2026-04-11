@@ -3,6 +3,7 @@
 // it exposes window.takoyaki to the renderer with typed ipc methods
 // types are duplicated here because preload cant import from the renderer
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ClaudeActivityState, ClaudeAttentionState } from '../shared/claude-status'
 
 interface PreloadWorkspace {
   id: string
@@ -31,13 +32,16 @@ interface PreloadWorkspaceSnapshot {
 }
 
 interface PreloadHookSurfaceStatus {
-  status: 'running' | 'finished' | 'failed'
-  eventName: string
-  receivedAt: number
+  activity: ClaudeActivityState
+  attention: ClaudeAttentionState
+  lastEventName: string | null
+  lastUpdatedAt: number
+  sessionPresent: boolean
+  subagentCount: number
 }
 
 interface PreloadAgentToastEvent {
-  status: 'running' | 'finished' | 'failed'
+  status: ClaudeActivityState
   workspaceId: string
   workspaceTitle: string
   tool: string

@@ -27,6 +27,7 @@ import {
   type ClaudeHookMatcher,
   type ClaudeSettings,
 } from '../main/hooks'
+import { MANAGED_CLAUDE_HOOK_EVENTS, type ManagedClaudeHookEvent } from '../shared/claude-status'
 
 const settingsPath = path.join(testState.home, '.claude', 'settings.json')
 const socketAddrPath = path.join(testState.home, '.takoyaki', 'socket_addr')
@@ -48,10 +49,7 @@ function readSettings(): ClaudeSettings {
   return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as ClaudeSettings
 }
 
-function getHookEntries(
-  settings: ClaudeSettings,
-  eventName: 'Stop' | 'StopFailure' | 'UserPromptSubmit',
-): ClaudeHookMatcher[] {
+function getHookEntries(settings: ClaudeSettings, eventName: ManagedClaudeHookEvent): ClaudeHookMatcher[] {
   const entries = settings.hooks?.[eventName]
   return Array.isArray(entries) ? (entries as ClaudeHookMatcher[]) : []
 }
@@ -74,9 +72,9 @@ describe('hooks', () => {
     const diagnostics = getHookDiagnostics()
 
     expect(diagnostics.health).toBe('missing')
-    expect(diagnostics.hookStates.Stop).toBe('missing')
-    expect(diagnostics.hookStates.StopFailure).toBe('missing')
-    expect(diagnostics.hookStates.UserPromptSubmit).toBe('missing')
+    for (const eventName of MANAGED_CLAUDE_HOOK_EVENTS) {
+      expect(diagnostics.hookStates[eventName]).toBe('missing')
+    }
     expect(diagnostics.detail).toContain('Missing Takoyaki hooks')
     expect(diagnostics.installedHooks.Stop).toBe(false)
   })
@@ -88,6 +86,11 @@ describe('hooks', () => {
           commandEntry(`${testState.nodePath} ${currentNotifyPath} --event Stop`),
           commandEntry('bark notify --title Claude'),
         ],
+        SessionStart: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SessionStart`)],
+        PermissionRequest: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event PermissionRequest`)],
+        Notification: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event Notification`)],
+        SubagentStart: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SubagentStart`)],
+        SubagentStop: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SubagentStop`)],
         StopFailure: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event StopFailure`)],
         UserPromptSubmit: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event UserPromptSubmit`)],
       },
@@ -101,9 +104,9 @@ describe('hooks', () => {
     expect(getHookEntries(settings, 'Stop').some((entry) => JSON.stringify(entry).includes('bark notify'))).toBe(true)
 
     const diagnostics = getHookDiagnostics()
-    expect(diagnostics.hookStates.Stop).toBe('current')
-    expect(diagnostics.hookStates.StopFailure).toBe('current')
-    expect(diagnostics.hookStates.UserPromptSubmit).toBe('current')
+    for (const eventName of MANAGED_CLAUDE_HOOK_EVENTS) {
+      expect(diagnostics.hookStates[eventName]).toBe('current')
+    }
   })
 
   it('reports current .takoyaki installs as connected when the socket is available', () => {
@@ -117,15 +120,20 @@ describe('hooks', () => {
 
     expect(diagnostics.health).toBe('connected')
     expect(diagnostics.notifyScriptPath.replace(/\\/g, '/')).toBe(currentNotifyPath)
-    expect(diagnostics.installedHooks.Stop).toBe(true)
-    expect(diagnostics.installedHooks.StopFailure).toBe(true)
-    expect(diagnostics.installedHooks.UserPromptSubmit).toBe(true)
+    for (const eventName of MANAGED_CLAUDE_HOOK_EVENTS) {
+      expect(diagnostics.installedHooks[eventName]).toBe(true)
+    }
   })
 
   it('marks malformed managed commands as degraded', () => {
     writeSettings({
       hooks: {
         Stop: [commandEntry(`${testState.nodePath} /tmp/takoyaki-notify.js --event Stop`)],
+        SessionStart: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SessionStart`)],
+        PermissionRequest: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event PermissionRequest`)],
+        Notification: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event Notification`)],
+        SubagentStart: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SubagentStart`)],
+        SubagentStop: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event SubagentStop`)],
         StopFailure: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event StopFailure`)],
         UserPromptSubmit: [commandEntry(`${testState.nodePath} ${currentNotifyPath} --event UserPromptSubmit`)],
       },

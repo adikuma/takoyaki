@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import {
   ArrowUpRight,
   Check,
+  CircleAlert,
   ChevronDown,
   Diff,
   FolderClosed,
@@ -21,7 +22,12 @@ import { button, colors, fonts, sizes } from './design'
 import { Tooltip } from './Tooltip'
 import { GitBranchIcon } from './icons'
 import { isPinnedProject, sortProjectsByPinned } from './pinned-projects'
-import type { EditorKind, HookStatusState, HookSurfaceStatus, Workspace } from './types'
+import type { EditorKind, Workspace } from './types'
+import {
+  aggregateClaudeWorkspaceStatus,
+  getClaudeAttentionLabel,
+  type ClaudeWorkspaceStatus,
+} from '../shared/claude-status'
 
 // folder icon that lights up amber when the project is selected
 function FolderIcon({ active }: { active?: boolean }) {
@@ -49,6 +55,10 @@ function LightningIcon() {
 
 function FailureIcon() {
   return <X size={sizes.iconSm} strokeWidth={2} color={colors.error} style={{ flexShrink: 0 }} />
+}
+
+function AttentionIcon() {
+  return <CircleAlert size={sizes.iconSm} strokeWidth={2} color={colors.accent} style={{ flexShrink: 0 }} />
 }
 
 function RowActionCluster({ children }: { children: ReactNode }) {
@@ -231,30 +241,24 @@ function RowActionMenu({ label, items }: { label: string; items: RowMenuItem[] }
   )
 }
 
-// shows a lightning bolt when running andcheckmark when done and  x when failed
-function StatusGlyph({ status }: { status: HookStatusState | null }) {
-  if (status === 'running') return <LightningIcon />
-  if (status === 'finished') return <Checkmark />
-  if (status === 'failed') return <FailureIcon />
-  return null
-}
+function StatusGlyph({ status }: { status: ClaudeWorkspaceStatus | null }) {
+  if (!status) return null
 
-// resolves the  status for a workspace from its surface statuses
-// running takes max prior, then failed, then finished
-function getWorkspaceStatus(
-  surfaceStatuses: Record<string, HookSurfaceStatus>,
-  workspaceSurfaceIds: string[],
-): HookStatusState | null {
-  let hasFinished = false
-  let hasFailed = false
-  for (const sid of workspaceSurfaceIds) {
-    const status = surfaceStatuses[sid]?.status
-    if (status === 'running') return 'running'
-    if (status === 'failed') hasFailed = true
-    if (status === 'finished') hasFinished = true
-  }
-  if (hasFailed) return 'failed'
-  return hasFinished ? 'finished' : null
+  let icon: ReactNode = null
+  if (status.kind === 'attention') icon = <AttentionIcon />
+  if (status.kind === 'running') icon = <LightningIcon />
+  if (status.kind === 'finished') icon = <Checkmark />
+  if (status.kind === 'failed') icon = <FailureIcon />
+  if (!icon) return null
+
+  const attentionLabel = getClaudeAttentionLabel(status.attention)
+  if (!attentionLabel) return <>{icon}</>
+
+  return (
+    <Tooltip content={attentionLabel} side="top">
+      <span className="inline-flex items-center">{icon}</span>
+    </Tooltip>
+  )
 }
 
 // if active workspace is a task return its parent project id otherwise return its own id
@@ -644,7 +648,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
           const projectRoot = ws.projectRoot || null
           const gitEnabled = canUseProjectGitActions(ws)
           const projectPinned = isPinnedProject(ws.projectRoot, pinnedProjectRoots)
-          const status = getWorkspaceStatus(surfaceStatuses, ws.surfaceIds || [])
+          const status = aggregateClaudeWorkspaceStatus(surfaceStatuses, ws.surfaceIds || [])
           const taskLabel = tasks.length ? `${tasks.length} task${tasks.length === 1 ? '' : 's'}` : null
           const branchLabel = getProjectBranchLabel(ws)
           const projectMenuItems: RowMenuItem[] = [
@@ -737,7 +741,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
 
               {tasks.map((task, taskIndex) => {
                 const taskSelected = task.id === activeId
-                const taskStatus = getWorkspaceStatus(surfaceStatuses, task.surfaceIds || [])
+                const taskStatus = aggregateClaudeWorkspaceStatus(surfaceStatuses, task.surfaceIds || [])
                 const isLast = taskIndex === tasks.length - 1
                 const taskMenuItems: RowMenuItem[] = [
                   {

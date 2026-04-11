@@ -23,6 +23,17 @@ import {
   getHookDiagnostics,
   testHooks,
 } from './hooks'
+import {
+  CLAUDE_RUNNING_STALE_TTL_MS,
+  createDefaultClaudeSurfaceStatus,
+  reduceClaudeSurfaceStatus,
+  shouldKeepClaudeSurfaceStatus,
+  shouldScheduleClaudeRunningExpiry,
+  staleClaudeSurfaceStatus,
+  type ClaudeRuntimeEvent,
+  type ClaudeStatusUpdate,
+  type ClaudeSurfaceStatus,
+} from '../shared/claude-status'
 
 let mainWindow: BrowserWindow | null = null
 const terminals = new TerminalManager()
@@ -36,17 +47,9 @@ const terminalRuntimeInfo = getTerminalRuntimeInfo()
 const reviewService = new ReviewService()
 const pendingGitRefreshProjects = new Set<string>()
 
-type HookStatusState = 'running' | 'finished' | 'failed'
-interface SurfaceStatusRecord {
-  status: HookStatusState
-  eventName: string
-  receivedAt: number
-}
-
-const RUNNING_STATUS_TTL_MS = 12_000
-const surfaceStatuses = new Map<string, SurfaceStatusRecord>()
+const surfaceStatuses = new Map<string, ClaudeSurfaceStatus>()
 const runningExpiryTimers = new Map<string, NodeJS.Timeout>()
-let lastHookEvent: ({ surfaceId: string } & SurfaceStatusRecord) | null = null
+let lastHookEvent: ClaudeRuntimeEvent | null = null
 let lastHookTest: { ok: boolean; detail: string; testedAt: number } | null = null
 let lastVisitedWorkspaceId: string | null = null
 const workspaceLastActivity = new Map<string, number>()
@@ -73,14 +76,14 @@ function sendStatusUpdate(): void {
   send('status:changed', Object.fromEntries(surfaceStatuses))
 }
 
-async function waitForHookEvent(startedAt: number, surfaceId: string, status: string): Promise<boolean> {
+async function waitForHookEvent(startedAt: number, surfaceId: string, activity: string): Promise<boolean> {
   const deadline = Date.now() + 3000
   while (Date.now() < deadline) {
     if (
       lastHookEvent &&
-      lastHookEvent.receivedAt >= startedAt &&
+      lastHookEvent.lastUpdatedAt >= startedAt &&
       lastHookEvent.surfaceId === surfaceId &&
-      lastHookEvent.status === status
+      lastHookEvent.activity === activity
     ) {
       return true
     }
@@ -94,7 +97,7 @@ function clearStatusesForWorkspace(workspaceId: string | null): void {
   let changed = false
   for (const surfaceId of workspaces.surfacesForWorkspace(workspaceId)) {
     const status = surfaceStatuses.get(surfaceId)
-    if (status?.status === 'finished' || status?.status === 'failed') {
+    if (status && !shouldKeepClaudeSurfaceStatus(status)) {
       clearRunningExpiry(surfaceId)
       surfaceStatuses.delete(surfaceId)
       changed = true
@@ -114,36 +117,28 @@ function scheduleRunningExpiry(surfaceId: string, receivedAt: number): void {
   clearRunningExpiry(surfaceId)
   const timer = setTimeout(() => {
     const current = surfaceStatuses.get(surfaceId)
-    if (!current || current.status !== 'running' || current.receivedAt !== receivedAt) return
-    surfaceStatuses.delete(surfaceId)
+    if (!current || !shouldScheduleClaudeRunningExpiry(current) || current.lastUpdatedAt !== receivedAt) return
+    surfaceStatuses.set(surfaceId, staleClaudeSurfaceStatus(current, Date.now()))
     runningExpiryTimers.delete(surfaceId)
     sendStatusUpdate()
-  }, RUNNING_STATUS_TTL_MS)
+  }, CLAUDE_RUNNING_STALE_TTL_MS)
   runningExpiryTimers.set(surfaceId, timer)
 }
 
-function defaultEventName(status: HookStatusState): string {
-  if (status === 'running') return 'UserPromptSubmit'
-  if (status === 'failed') return 'StopFailure'
-  return 'Stop'
-}
-
-rpc.onStatusUpdate = (surfaceId: string, update: { status: string; eventName: string }) => {
+rpc.onStatusUpdate = (surfaceId: string, update: ClaudeStatusUpdate) => {
   if (!surfaceId) return
 
-  const status = update.status as HookStatusState
-  if (status !== 'running' && status !== 'finished' && status !== 'failed') return
-
-  const record: SurfaceStatusRecord = {
-    status,
-    eventName: update.eventName || defaultEventName(status),
-    receivedAt: Date.now(),
-  }
+  const receivedAt = Date.now()
+  const record = reduceClaudeSurfaceStatus(
+    surfaceStatuses.get(surfaceId) || createDefaultClaudeSurfaceStatus(),
+    update,
+    receivedAt,
+  )
 
   clearRunningExpiry(surfaceId)
   surfaceStatuses.set(surfaceId, record)
-  if (record.status === 'running') {
-    scheduleRunningExpiry(surfaceId, record.receivedAt)
+  if (shouldScheduleClaudeRunningExpiry(record)) {
+    scheduleRunningExpiry(surfaceId, record.lastUpdatedAt)
   }
 
   lastHookEvent = { surfaceId, ...record }
@@ -155,10 +150,19 @@ rpc.onStatusUpdate = (surfaceId: string, update: { status: string; eventName: st
   }
 
   // send project-aware toast for finished/failed events (only for non-active workspaces)
-  if ((status === 'finished' || status === 'failed') && eventWsId && eventWsId !== workspaces.activeWorkspaceId) {
+  if (
+    (record.activity === 'finished' || record.activity === 'failed') &&
+    eventWsId &&
+    eventWsId !== workspaces.activeWorkspaceId
+  ) {
     const ws = workspaces.get(eventWsId)
     if (ws) {
-      send('toast:agent-event', { status, workspaceId: eventWsId, workspaceTitle: ws.title, tool: 'claude' })
+      send('toast:agent-event', {
+        status: record.activity,
+        workspaceId: eventWsId,
+        workspaceTitle: ws.title,
+        tool: 'claude',
+      })
     }
   }
 
@@ -587,7 +591,7 @@ function setupIpc(): void {
     return {
       ...diagnostics,
       restartRequired: Boolean(
-        diagnostics.lastInstalledAt && (!lastHookEvent || lastHookEvent.receivedAt < diagnostics.lastInstalledAt),
+        diagnostics.lastInstalledAt && (!lastHookEvent || lastHookEvent.lastUpdatedAt < diagnostics.lastInstalledAt),
       ),
       lastEvent: lastHookEvent,
       lastTest: lastHookTest,
