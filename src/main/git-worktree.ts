@@ -4,6 +4,7 @@ import * as path from 'path'
 
 const GIT_TIMEOUT_MS = 12_000
 const TASKS_METADATA_FILE = 'takoyaki-tasks.json'
+const REMOVE_RETRY_DELAYS_MS = [120, 300, 700]
 
 export interface CreateTaskOptions {
   projectRoot: string
@@ -53,6 +54,14 @@ export interface ManagedWorktree {
   createdAt: number | null
 }
 
+export interface ManagedTaskMatch {
+  projectRoot: string
+  taskTitle: string
+  branchName: string
+  baseBranch: string | null
+  worktreePath: string
+}
+
 function runGit(cwd: string, args: string[], timeoutMs = GIT_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -73,6 +82,27 @@ function runGit(cwd: string, args: string[], timeoutMs = GIT_TIMEOUT_MS): Promis
       },
     )
   })
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isLikelyWorktreeInUseError(message: string): boolean {
+  return /access is denied|device or resource busy|resource busy|permission denied|directory not empty|in use|being used by another process|cannot access the file|used by another process/i.test(
+    message,
+  )
+}
+
+function isStaleManagedWorktreeError(message: string): boolean {
+  return /not a working tree|is not a working tree|not a git repository/i.test(message)
+}
+
+function formatRemoveTaskError(message: string): string {
+  if (isLikelyWorktreeInUseError(message)) {
+    return 'Task worktree is still in use. Close running processes, terminals, or editors using it and try again.'
+  }
+  return message || 'Unable to remove task worktree'
 }
 
 function slugify(value: string): string {
@@ -199,9 +229,28 @@ function removeTaskMetadata(projectRoot: string, worktreePath: string): void {
   writeTaskMetadata(projectRoot, remaining)
 }
 
+async function cleanupStaleTaskMetadata(projectRoot: string, worktreePath: string): Promise<RemoveTaskResult> {
+  await runGit(projectRoot, ['worktree', 'prune']).catch(() => '')
+  removeTaskMetadata(projectRoot, worktreePath)
+  return {
+    ok: true,
+    blocked: false,
+    detail: 'Task entry removed. Worktree was already unavailable. Branch was kept.',
+  }
+}
+
 async function refExists(projectRoot: string, refName: string): Promise<boolean> {
   try {
     await runGit(projectRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${refName}`])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function hasInitialCommit(projectRoot: string): Promise<boolean> {
+  try {
+    await runGit(projectRoot, ['rev-parse', '--verify', 'HEAD'])
     return true
   } catch {
     return false
@@ -228,6 +277,43 @@ function uniqueWorktreePath(projectRoot: string, slug: string): string {
 }
 
 export class GitWorktreeService {
+  async findManagedTaskForPath(inputPath: string | null | undefined): Promise<ManagedTaskMatch | null> {
+    if (!inputPath) return null
+
+    const worktreePath = await this.detectRepoRoot(inputPath)
+    if (!worktreePath) return null
+
+    try {
+      const [commonDir, absoluteGitDir] = await Promise.all([
+        runGit(inputPath, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+        runGit(inputPath, ['rev-parse', '--path-format=absolute', '--absolute-git-dir']),
+      ])
+
+      const normalizedCommonDir = normalizePath(commonDir.trim())
+      const normalizedAbsoluteGitDir = normalizePath(absoluteGitDir.trim())
+      if (!normalizedCommonDir || !normalizedAbsoluteGitDir || normalizedCommonDir === normalizedAbsoluteGitDir) {
+        return null
+      }
+
+      const projectRoot = normalizePath(path.dirname(normalizedCommonDir))
+      if (!projectRoot || projectRoot === normalizePath(worktreePath)) return null
+
+      const metadata = readTaskMetadata(projectRoot)
+      const task = metadata.find((entry) => normalizePath(entry.worktreePath) === normalizePath(worktreePath))
+      if (!task) return null
+
+      return {
+        projectRoot,
+        taskTitle: task.taskTitle,
+        branchName: task.branchName,
+        baseBranch: task.baseBranch,
+        worktreePath: normalizePath(worktreePath),
+      }
+    } catch {
+      return null
+    }
+  }
+
   async detectRepoRoot(inputPath: string | null | undefined): Promise<string | null> {
     if (!inputPath) return null
     try {
@@ -311,6 +397,9 @@ export class GitWorktreeService {
   async createTask(options: CreateTaskOptions): Promise<CreateTaskResult> {
     const taskTitle = options.taskTitle.trim()
     if (!taskTitle) throw new Error('Task title is required')
+    if (!(await hasInitialCommit(options.projectRoot))) {
+      throw new Error('Create an initial commit before creating tasks/worktrees.')
+    }
 
     const baseBranch = options.baseBranch?.trim() || (await this.getCurrentBranch(options.projectRoot))
     const slug = slugify(taskTitle)
@@ -348,7 +437,28 @@ export class GitWorktreeService {
     }
 
     try {
-      await runGit(projectRoot, ['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath])
+      let lastError: Error | null = null
+      const removeArgs = ['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath]
+
+      for (let attempt = 0; attempt <= REMOVE_RETRY_DELAYS_MS.length; attempt += 1) {
+        try {
+          await runGit(projectRoot, removeArgs)
+          lastError = null
+          break
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Unable to remove task worktree')
+          const shouldRetry =
+            process.platform === 'win32' &&
+            attempt < REMOVE_RETRY_DELAYS_MS.length &&
+            isLikelyWorktreeInUseError(lastError.message)
+          if (!shouldRetry) {
+            throw lastError
+          }
+          await delay(REMOVE_RETRY_DELAYS_MS[attempt]!)
+        }
+      }
+
+      if (lastError) throw lastError
       await runGit(projectRoot, ['worktree', 'prune']).catch(() => '')
       removeTaskMetadata(projectRoot, worktreePath)
       return {
@@ -357,10 +467,13 @@ export class GitWorktreeService {
         detail: 'Task worktree removed. Branch was kept.',
       }
     } catch (error) {
+      if (isStaleManagedWorktreeError(error instanceof Error ? error.message : '')) {
+        return cleanupStaleTaskMetadata(projectRoot, worktreePath)
+      }
       return {
         ok: false,
         blocked: false,
-        detail: error instanceof Error ? error.message : 'Unable to remove task worktree',
+        detail: formatRemoveTaskError(error instanceof Error ? error.message : 'Unable to remove task worktree'),
       }
     }
   }

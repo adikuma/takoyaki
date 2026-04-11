@@ -2,6 +2,7 @@
 
 import { WorkspaceManager } from './workspace'
 import { TerminalManager } from './terminal'
+import type { ClaudeStatusUpdate } from '../shared/claude-status'
 
 export interface RpcRequest {
   id?: string | number
@@ -25,7 +26,7 @@ function err(id: unknown, code: string, message: string): RpcResponse {
 }
 
 export class RpcHandler {
-  onStatusUpdate: ((surfaceId: string, update: { status: string; eventName: string }) => void) | null = null
+  onStatusUpdate: ((surfaceId: string, update: ClaudeStatusUpdate) => void) | null = null
 
   constructor(
     private workspaces: WorkspaceManager,
@@ -120,7 +121,16 @@ export class RpcHandler {
         const eventName = (p.event_name as string) || ''
         if (!surfaceId) return err(req.id, 'invalid_params', 'surface_id required')
         if (!status) return err(req.id, 'invalid_params', 'status required')
-        if (this.onStatusUpdate) this.onStatusUpdate(surfaceId, { status, eventName })
+        if (this.onStatusUpdate) {
+          this.onStatusUpdate(surfaceId, {
+            status,
+            eventName,
+            notificationType: (p.notification_type as string) || '',
+            toolName: (p.tool_name as string) || '',
+            sessionSource: (p.session_source as string) || '',
+            subagentType: (p.subagent_type as string) || '',
+          })
+        }
         return ok(req.id, {})
       }
 

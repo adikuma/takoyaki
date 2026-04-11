@@ -3,6 +3,7 @@
 // it exposes window.takoyaki to the renderer with typed ipc methods
 // types are duplicated here because preload cant import from the renderer
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ClaudeActivityState, ClaudeAttentionState } from '../shared/claude-status'
 
 interface PreloadWorkspace {
   id: string
@@ -20,7 +21,7 @@ interface PreloadWorkspace {
 }
 
 type PreloadPaneTree =
-  | { type: 'leaf'; surfaceId: string; terminalId: string }
+  | { type: 'leaf'; surfaceId: string; terminalId: string; fontSize: number }
   | { type: 'split'; direction: 'horizontal' | 'vertical'; first: PreloadPaneTree; second: PreloadPaneTree }
 
 interface PreloadWorkspaceSnapshot {
@@ -31,13 +32,16 @@ interface PreloadWorkspaceSnapshot {
 }
 
 interface PreloadHookSurfaceStatus {
-  status: 'running' | 'finished' | 'failed'
-  eventName: string
-  receivedAt: number
+  activity: ClaudeActivityState
+  attention: ClaudeAttentionState
+  lastEventName: string | null
+  lastUpdatedAt: number
+  sessionPresent: boolean
+  subagentCount: number
 }
 
 interface PreloadAgentToastEvent {
-  status: 'running' | 'finished' | 'failed'
+  status: ClaudeActivityState
   workspaceId: string
   workspaceTitle: string
   tool: string
@@ -171,6 +175,12 @@ const api = {
     cycleVisible: (direction: 'next' | 'prev') => ipcRenderer.invoke('workspace:cycle-visible', direction),
     select: (id: string) => ipcRenderer.invoke('workspace:select', id),
     close: (id: string) => ipcRenderer.invoke('workspace:close', id),
+    createPane: (workspaceId: string) => ipcRenderer.invoke('workspace:create-pane', workspaceId),
+    splitSurface: (surfaceId: string, direction: 'horizontal' | 'vertical') =>
+      ipcRenderer.invoke('workspace:split-surface', surfaceId, direction),
+    closeSurface: (surfaceId: string) => ipcRenderer.invoke('workspace:close-surface', surfaceId),
+    setSurfaceFontSize: (surfaceId: string, fontSize: number) =>
+      ipcRenderer.invoke('workspace:set-surface-font-size', surfaceId, fontSize),
     current: () => ipcRenderer.invoke('workspace:current'),
     tree: (wsId?: string) => ipcRenderer.invoke('workspace:tree', wsId),
     onChange: (cb: (snapshot: PreloadWorkspaceSnapshot) => void) => {
@@ -188,6 +198,7 @@ const api = {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
     close: () => ipcRenderer.invoke('window:close'),
+    openExternal: (url: string) => ipcRenderer.invoke('window:open-external', url) as Promise<boolean>,
   },
   hooks: {
     shouldShow: () => ipcRenderer.invoke('hooks:should-show'),

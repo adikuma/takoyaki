@@ -3,6 +3,7 @@ import type { PaneTree, Workspace } from './types'
 export interface PaneLeaf {
   surfaceId: string
   terminalId: string
+  fontSize: number
 }
 
 export interface WorkspaceTerminal extends PaneLeaf {
@@ -19,7 +20,7 @@ export interface TerminalFrame {
 // flatten the pane tree so the terminal stage can track live terminals by id
 export function collectLeaves(tree: PaneTree): PaneLeaf[] {
   if (tree.type === 'leaf') {
-    return [{ surfaceId: tree.surfaceId, terminalId: tree.terminalId }]
+    return [{ surfaceId: tree.surfaceId, terminalId: tree.terminalId, fontSize: tree.fontSize }]
   }
   return [...collectLeaves(tree.first), ...collectLeaves(tree.second)]
 }
@@ -40,6 +41,7 @@ export function collectWorkspaceTerminals(
         workspaceId: workspace.id,
         surfaceId: leaf.surfaceId,
         terminalId: leaf.terminalId,
+        fontSize: leaf.fontSize,
       })
     }
   }

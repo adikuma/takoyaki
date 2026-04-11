@@ -4,6 +4,7 @@ import { colors, button, fonts, sizes } from './design'
 import { useStore } from './store'
 import type { EditorKind, HookDiagnostics } from './types'
 import { shortcutDisplayRows } from '../shared/shortcuts'
+import { MANAGED_CLAUDE_HOOK_EVENTS } from '../shared/claude-status'
 import claudeLogo from './assets/providers/claude.svg?raw'
 import cursorLogo from './assets/providers/cursor.svg?raw'
 import vscodeLogo from './assets/providers/vscode.svg?raw'
@@ -14,12 +15,12 @@ interface Props {
   onClose: () => void
 }
 
-// renders an editor logo svg inline at 14x14
+// renders an editor logo svg inline using the shared base icon size
 function ProviderIcon({ svg, color = colors.textSecondary }: { svg: string; color?: string }) {
   return (
     <span
-      className="inline-flex h-[14px] w-[14px] items-center justify-center"
-      style={{ color }}
+      className="inline-flex items-center justify-center"
+      style={{ color, width: sizes.iconBase, height: sizes.iconBase }}
       dangerouslySetInnerHTML={{ __html: svg }}
     />
   )
@@ -27,7 +28,7 @@ function ProviderIcon({ svg, color = colors.textSecondary }: { svg: string; colo
 
 // file explorer uses a lucide icon instead of a bundled svg
 function ExplorerIcon({ color = colors.textSecondary }: { color?: string }) {
-  return <FolderOpen size={14} strokeWidth={1.9} color={color} />
+  return <FolderOpen size={sizes.iconBase} strokeWidth={1.9} color={color} />
 }
 
 function Checkmark() {
@@ -125,11 +126,10 @@ export function Settings({ open, onClose }: Props) {
 
   // NOTE: claude code has hooks and the others are placeholders for future
   const claudeHooks = installedHooks
-    ? [
-        { name: 'Stop', ok: installedHooks.Stop },
-        { name: 'StopFailure', ok: installedHooks.StopFailure },
-        { name: 'UserPromptSubmit', ok: installedHooks.UserPromptSubmit },
-      ]
+    ? MANAGED_CLAUDE_HOOK_EVENTS.map((eventName) => ({
+        name: eventName,
+        ok: installedHooks[eventName],
+      }))
     : null
   const claudeCount = claudeHooks ? claudeHooks.filter((h) => h.ok).length : 0
   const claudeTotal = claudeHooks ? claudeHooks.length : 0
@@ -204,7 +204,7 @@ export function Settings({ open, onClose }: Props) {
                   {editorOptions.find((e) => e.kind === defaultEditor)?.label || defaultEditor}
                 </span>
                 <ChevronDown
-                  size={12}
+                  size={sizes.iconSm}
                   strokeWidth={1.9}
                   color={colors.textMuted}
                   style={{ transform: editorDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 120ms' }}
@@ -442,7 +442,7 @@ export function Settings({ open, onClose }: Props) {
                   <div className="flex gap-2" style={{ color: colors.textSecondary }}>
                     <span style={{ color: colors.textMuted }}>last</span>
                     <span style={{ color: colors.textGhost }}>
-                      {diagnostics.lastEvent.eventName || diagnostics.lastEvent.status}
+                      {diagnostics.lastEvent.lastEventName || diagnostics.lastEvent.activity}
                     </span>
                   </div>
                 )}

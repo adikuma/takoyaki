@@ -1,3 +1,10 @@
+import type {
+  ClaudeActivityState,
+  ClaudeRuntimeEvent,
+  ClaudeSurfaceStatus,
+  ManagedClaudeHookEvent,
+} from '../shared/claude-status'
+
 // domain types
 // workspace is the main unit of organization in the application
 export interface Workspace {
@@ -20,7 +27,7 @@ export interface Workspace {
 // leaf is a single terminal pane and if leaf then i just need the surfaceId and terminalId
 // split is a horizontal or vertical split of two panes and if split then i just need the direction and the first and second children (for more splits)
 export type PaneTree =
-  | { type: 'leaf'; surfaceId: string; terminalId: string }
+  | { type: 'leaf'; surfaceId: string; terminalId: string; fontSize: number }
   | { type: 'split'; direction: 'horizontal' | 'vertical'; first: PaneTree; second: PaneTree }
 
 // state of the application to reload on app restart
@@ -31,19 +38,11 @@ export interface WorkspaceSnapshot {
   focusedSurfaceId: string | null
 }
 
-// claude hook status states
-export type HookStatusState = 'running' | 'finished' | 'failed'
+export type HookStatusState = ClaudeActivityState
+export type HookSurfaceStatus = ClaudeSurfaceStatus
+export type HookRuntimeEvent = ClaudeRuntimeEvent
 
-// claude hook surface status
-export interface HookSurfaceStatus {
-  status: HookStatusState
-  eventName: string
-  receivedAt: number
-}
-// same thing but with surfaceId attached so Takoyaki knows WHICH pane it is at
-export interface HookRuntimeEvent extends HookSurfaceStatus {
-  surfaceId: string
-}
+export type HookCommandState = 'current' | 'missing' | 'invalid'
 
 // test result from claude hook
 export interface HookTestResult {
@@ -60,16 +59,8 @@ export interface HookDiagnostics {
   settingsExists: boolean
   notifyScriptExists: boolean
   // hook registration
-  hookStates: {
-    Stop: 'current' | 'missing' | 'invalid'
-    StopFailure: 'current' | 'missing' | 'invalid'
-    UserPromptSubmit: 'current' | 'missing' | 'invalid'
-  }
-  installedHooks: {
-    Stop: boolean
-    StopFailure: boolean
-    UserPromptSubmit: boolean
-  }
+  hookStates: Record<ManagedClaudeHookEvent, HookCommandState>
+  installedHooks: Record<ManagedClaudeHookEvent, boolean>
   //socket
   socketAddress: string | null
   nodeExecutable: string | null
@@ -241,6 +232,10 @@ declare global {
         cycleVisible: (direction: 'next' | 'prev') => Promise<string | null>
         select: (id: string) => Promise<boolean>
         close: (id: string) => Promise<boolean>
+        createPane: (workspaceId: string) => Promise<boolean>
+        splitSurface: (surfaceId: string, direction: 'horizontal' | 'vertical') => Promise<boolean>
+        closeSurface: (surfaceId: string) => Promise<boolean>
+        setSurfaceFontSize: (surfaceId: string, fontSize: number) => Promise<boolean>
         current: () => Promise<Workspace | null>
         tree: (wsId?: string) => Promise<PaneTree | null>
         onChange: (cb: (snapshot: WorkspaceSnapshot) => void) => () => void
@@ -286,6 +281,7 @@ declare global {
         minimize: () => void
         maximize: () => void
         close: () => void
+        openExternal: (url: string) => Promise<boolean>
       }
       onShortcut: (cb: (action: ShortcutAction) => void) => () => void
     }

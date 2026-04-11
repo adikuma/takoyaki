@@ -1,10 +1,22 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
 type PtyDataCallback = (data: string) => void
 type PtyExitCallback = (event: { exitCode: number; signal?: number }) => void
+
+const workspaceState = vi.hoisted(() => {
+  const path = require('path')
+  return {
+    home: path.join(process.cwd(), '.tmp-workspace-home'),
+  }
+})
+
+vi.mock('os', async () => {
+  const actual = await vi.importActual<typeof import('os')>('os')
+  return { ...actual, homedir: () => workspaceState.home }
+})
 
 // mock node-pty
 vi.mock('node-pty', () => {
@@ -37,9 +49,20 @@ describe('WorkspaceManager', () => {
   let wm: WorkspaceManager
   let tm: TerminalManager
 
+  function ensureDir(dir: string): string {
+    fs.mkdirSync(dir, { recursive: true })
+    return dir
+  }
+
   beforeEach(() => {
+    fs.rmSync(workspaceState.home, { recursive: true, force: true })
+    vi.clearAllMocks()
     tm = new TerminalManager()
     wm = new WorkspaceManager(tm)
+  })
+
+  afterEach(() => {
+    fs.rmSync(workspaceState.home, { recursive: true, force: true })
   })
 
   describe('create', () => {
@@ -124,6 +147,37 @@ describe('WorkspaceManager', () => {
     })
   })
 
+  describe('setWorkspaceBranchName', () => {
+    it('updates a git-backed project branch in place', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+
+      const updated = wm.setWorkspaceBranchName(project.id, 'main')
+
+      expect(updated?.branchName).toBe('main')
+      expect(wm.get(project.id)?.branchName).toBe('main')
+    })
+
+    it('updates a task branch in place', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+      const task = wm.createTask(project.id, 'auth refactor', '/tmp/task-auth', 'task/auth-refactor', 'main')
+
+      const updated = wm.setWorkspaceBranchName(task!.id, 'feature/auth-refactor')
+
+      expect(updated?.branchName).toBe('feature/auth-refactor')
+      expect(wm.get(task!.id)?.branchName).toBe('feature/auth-refactor')
+    })
+
+    it('accepts null for detached workspaces', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+
+      wm.setWorkspaceBranchName(project.id, 'main')
+      const updated = wm.setWorkspaceBranchName(project.id, null)
+
+      expect(updated?.branchName).toBeNull()
+      expect(wm.get(project.id)?.branchName).toBeNull()
+    })
+  })
+
   describe('syncRecoveredTasks', () => {
     it('creates recovered task workspaces without changing the active project', () => {
       const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
@@ -183,6 +237,27 @@ describe('WorkspaceManager', () => {
       expect(recovered[0].id).toBe(task?.id)
       expect(wm.get(task!.id)?.title).toBe('Recovered Auth Refactor')
       expect(wm.get(task!.id)?.baseBranch).toBe('develop')
+    })
+
+    it('converts a duplicate standalone worktree project into the recovered task row', () => {
+      const project = wm.create('slapback', '/repos/slapback', '/repos/slapback', true)
+      const standalone = wm.create('slapback-auth-refactor', '/tmp/task-auth', '/tmp/task-auth', true)
+
+      const recovered = wm.syncRecoveredTasks(project.id, [
+        {
+          title: 'Recovered Auth Refactor',
+          worktreePath: '/tmp/task-auth',
+          branchName: 'feature/auth-refactor',
+          baseBranch: 'develop',
+        },
+      ])
+
+      expect(recovered[0].id).toBe(standalone.id)
+      expect(wm.get(standalone.id)?.kind).toBe('task')
+      expect(wm.get(standalone.id)?.parentProjectId).toBe(project.id)
+      expect(wm.get(standalone.id)?.title).toBe('Recovered Auth Refactor')
+      expect(wm.get(standalone.id)?.branchName).toBe('feature/auth-refactor')
+      expect(wm.listProjects().map((workspace) => workspace.id)).toEqual([project.id])
     })
   })
 
@@ -336,6 +411,21 @@ describe('WorkspaceManager', () => {
       expect(summary?.paneCount).toBe(2)
       expect(summary?.surfaceIds).toHaveLength(2)
     })
+
+    it('inherits the source pane font size when splitting', () => {
+      const ws = wm.create()
+      const originalSurfaceId = ws.focusedSurfaceId!
+
+      expect(wm.setSurfaceFontSize(originalSurfaceId, 18)).toBe(true)
+      expect(wm.splitFocused('horizontal')).toBe(true)
+
+      const tree = wm.getTree(ws.id)
+      expect(tree?.type).toBe('split')
+      if (tree?.type === 'split' && tree.first.type === 'leaf' && tree.second.type === 'leaf') {
+        expect(tree.first.fontSize).toBe(18)
+        expect(tree.second.fontSize).toBe(18)
+      }
+    })
   })
 
   describe('closeFocused', () => {
@@ -348,9 +438,13 @@ describe('WorkspaceManager', () => {
       expect(tree?.type).toBe('leaf')
     })
 
-    it('does not close the last surface', () => {
-      wm.create()
-      expect(wm.closeFocused()).toBe(false)
+    it('closes the last surface and leaves the workspace empty', () => {
+      const ws = wm.create()
+
+      expect(wm.closeFocused()).toBe(true)
+      expect(wm.getTree(ws.id)).toBeNull()
+      expect(wm.current()?.focusedSurfaceId).toBeNull()
+      expect(wm.current()?.paneCount).toBe(0)
     })
 
     it('updates focus to remaining surface', () => {
@@ -359,6 +453,108 @@ describe('WorkspaceManager', () => {
       wm.splitFocused('horizontal')
       wm.closeFocused()
       expect(wm.current()?.focusedSurfaceId).toBe(originalId)
+    })
+  })
+
+  describe('surface actions', () => {
+    it('splits the requested surface directly', () => {
+      const ws = wm.create()
+      const originalId = ws.focusedSurfaceId!
+
+      expect(wm.splitSurface(originalId, 'horizontal')).toBe(true)
+
+      const tree = wm.getTree(ws.id)
+      expect(tree?.type).toBe('split')
+    })
+
+    it('closes the requested surface directly', () => {
+      const ws = wm.create()
+      const originalId = ws.focusedSurfaceId!
+      wm.splitFocused('horizontal')
+
+      expect(wm.closeSurface(originalId)).toBe(true)
+      expect(wm.current()?.paneCount).toBe(1)
+    })
+
+    it('preserves focus when closing a non-focused surface', () => {
+      const ws = wm.create()
+      const originalId = ws.focusedSurfaceId!
+
+      expect(wm.splitFocused('horizontal')).toBe(true)
+      const secondSurfaceId = wm.current()?.focusedSurfaceId as string
+
+      expect(wm.splitSurface(originalId, 'vertical')).toBe(true)
+      const backgroundSurfaceId = wm.current()?.focusedSurfaceId as string
+
+      expect(wm.focusSurface(secondSurfaceId)).toBe(true)
+      expect(wm.closeSurface(backgroundSurfaceId)).toBe(true)
+      expect(wm.current()?.focusedSurfaceId).toBe(secondSurfaceId)
+    })
+
+    it('keeps workspace workingDirectory aligned to the surviving focused pane', () => {
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-review-root'))
+      const serverDir = ensureDir(path.join(projectRoot, 'server'))
+
+      wm.restoreWorkspace({
+        id: 'review-project',
+        title: 'review-project',
+        kind: 'project',
+        parentProjectId: null,
+        focusedSurfaceId: 'surface-root',
+        workingDirectory: projectRoot,
+        projectRoot,
+        gitEnabled: true,
+        branchName: 'main',
+        baseBranch: null,
+        paneTree: {
+          type: 'split',
+          direction: 'horizontal',
+          first: {
+            type: 'leaf',
+            surfaceId: 'surface-root',
+            cwd: projectRoot,
+          },
+          second: {
+            type: 'leaf',
+            surfaceId: 'surface-server',
+            cwd: serverDir,
+          },
+        },
+      })
+
+      expect(wm.closeSurface('surface-server')).toBe(true)
+      expect(wm.get('review-project')?.focusedSurfaceId).toBe('surface-root')
+      expect(wm.get('review-project')?.workingDirectory).toBe(projectRoot)
+    })
+
+    it('recreates a pane in an empty workspace', () => {
+      const ws = wm.create()
+      wm.closeFocused()
+
+      expect(wm.createPane(ws.id)).toBe(true)
+      expect(wm.getTree(ws.id)?.type).toBe('leaf')
+      expect(wm.current()?.focusedSurfaceId).toBeTruthy()
+    })
+
+    it('updates only the targeted surface font size', () => {
+      const ws = wm.create()
+      const originalId = ws.focusedSurfaceId!
+      wm.splitFocused('horizontal')
+
+      const current = wm.current()
+      expect(current?.focusedSurfaceId).toBeTruthy()
+      const newSurfaceId = current?.focusedSurfaceId as string
+
+      expect(wm.setSurfaceFontSize(newSurfaceId, 19)).toBe(true)
+
+      const tree = wm.getTree(ws.id)
+      expect(tree?.type).toBe('split')
+      if (tree?.type === 'split' && tree.first.type === 'leaf' && tree.second.type === 'leaf') {
+        const first = tree.first.surfaceId === originalId ? tree.first : tree.second
+        const second = tree.first.surfaceId === newSurfaceId ? tree.first : tree.second
+        expect(first.fontSize).toBe(14)
+        expect(second.fontSize).toBe(19)
+      }
     })
   })
 
@@ -379,7 +575,10 @@ describe('WorkspaceManager', () => {
 
   describe('persistence', () => {
     it('save and load round-trips workspace layout', () => {
-      wm.create('project-a', '/workspace/app/backend', '/workspace/app', true)
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-a'))
+      const backendDir = ensureDir(path.join(projectRoot, 'backend'))
+
+      wm.create('project-a', backendDir, projectRoot, true)
       wm.splitFocused('horizontal')
       wm.create('project-b')
 
@@ -394,19 +593,45 @@ describe('WorkspaceManager', () => {
       expect(wm2.list()).toHaveLength(2)
       expect(wm2.list().map((w) => w.title)).toContain('project-a')
       expect(wm2.list().map((w) => w.title)).toContain('project-b')
-      expect(wm2.list().find((w) => w.title === 'project-a')?.projectRoot).toBe('/workspace/app')
+      expect(wm2.list().find((w) => w.title === 'project-a')?.projectRoot).toBe(projectRoot)
       expect(wm2.list().find((w) => w.title === 'project-a')?.gitEnabled).toBe(true)
       expect(wm2.list().find((w) => w.title === 'project-b')?.gitEnabled).toBe(false)
+    })
+
+    it('persists per-pane font sizes', () => {
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-fonts'))
+      const ws = wm.create('project-fonts', projectRoot, projectRoot, true)
+      const originalSurfaceId = ws.focusedSurfaceId!
+
+      wm.setSurfaceFontSize(originalSurfaceId, 17)
+      wm.splitFocused('horizontal')
+      expect(wm.current()?.focusedSurfaceId).toBeTruthy()
+      const newSurfaceId = wm.current()?.focusedSurfaceId as string
+      wm.setSurfaceFontSize(newSurfaceId, 20)
+
+      wm.save()
+
+      const tm2 = new TerminalManager()
+      const wm2 = new WorkspaceManager(tm2)
+      wm2.load()
+
+      const restoredTree = wm2.getTree(ws.id)
+      expect(restoredTree?.type).toBe('split')
+      if (restoredTree?.type === 'split' && restoredTree.first.type === 'leaf' && restoredTree.second.type === 'leaf') {
+        const fontSizes = [restoredTree.first.fontSize, restoredTree.second.fontSize].sort((a, b) => a - b)
+        expect(fontSizes).toEqual([17, 20])
+      }
     })
 
     it('persists and restores task metadata', () => {
       // load() skips tasks where the working directory doesnt exist on disk
       // use a real temp directory so the existence check passes
       const taskDir = path.join(os.tmpdir(), 'takoyaki-test-task-' + Date.now())
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-a'))
       fs.mkdirSync(taskDir, { recursive: true })
 
       try {
-        const project = wm.create('project-a', '/workspace/app', '/workspace/app', true)
+        const project = wm.create('project-a', projectRoot, projectRoot, true)
         wm.createTask(project.id, 'auth refactor', taskDir, 'task/auth-refactor', 'main')
 
         wm.save()
@@ -422,6 +647,83 @@ describe('WorkspaceManager', () => {
       } finally {
         fs.rmSync(taskDir, { recursive: true, force: true })
       }
+    })
+
+    it('persists and restores empty workspaces', () => {
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-a'))
+      const ws = wm.create('project-a', projectRoot, projectRoot, true)
+      wm.closeFocused()
+
+      wm.save()
+
+      const tm2 = new TerminalManager()
+      const wm2 = new WorkspaceManager(tm2)
+      wm2.load()
+
+      const restored = wm2.get(ws.id)
+      expect(restored?.paneCount).toBe(0)
+      expect(restored?.focusedSurfaceId).toBeNull()
+      expect(wm2.getTree(ws.id)).toBeNull()
+    })
+
+    it('defaults missing persisted pane font sizes to 14', () => {
+      const stateDir = path.join(workspaceState.home, '.takoyaki')
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-legacy-font'))
+      fs.mkdirSync(stateDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(stateDir, 'state.json'),
+        JSON.stringify(
+          {
+            activeWorkspaceId: 'legacy-project',
+            workspaces: [
+              {
+                id: 'legacy-project',
+                title: 'legacy-project',
+                kind: 'project',
+                parentProjectId: null,
+                focusedSurfaceId: 'surface-a',
+                workingDirectory: projectRoot,
+                projectRoot,
+                gitEnabled: true,
+                branchName: 'main',
+                baseBranch: null,
+                paneTree: {
+                  type: 'leaf',
+                  surfaceId: 'surface-a',
+                  cwd: projectRoot,
+                },
+              },
+            ],
+          },
+          null,
+          2,
+        ),
+        'utf-8',
+      )
+
+      const tm2 = new TerminalManager()
+      const wm2 = new WorkspaceManager(tm2)
+      wm2.load()
+
+      const restoredTree = wm2.getTree('legacy-project')
+      expect(restoredTree?.type).toBe('leaf')
+      if (restoredTree?.type === 'leaf') {
+        expect(restoredTree.fontSize).toBe(14)
+      }
+    })
+
+    it('skips persisted projects whose paths no longer exist', () => {
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-a'))
+      const ws = wm.create('project-a', projectRoot, projectRoot, true)
+
+      wm.save()
+      fs.rmSync(projectRoot, { recursive: true, force: true })
+
+      const tm2 = new TerminalManager()
+      const wm2 = new WorkspaceManager(tm2)
+      wm2.load()
+
+      expect(wm2.get(ws.id)).toBeNull()
     })
   })
 })
