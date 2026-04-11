@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type WheelEvent as ReactWheelEvent,
+} from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -565,9 +572,24 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     searchAddonRef.current?.clearDecorations()
   }
 
+  const syncSurfaceFocus = () => {
+    void window.takoyaki?.surface.focus(surfaceId)
+  }
+
+  const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!isVisible) return
+    if (event.button !== 0) return
+    syncSurfaceFocus()
+  }
+
+  const handleFocusWithin = () => {
+    if (!isVisible) return
+    if (isFocused) return
+    syncSurfaceFocus()
+  }
+
   const handleClick = () => {
     if (!isVisible) return
-    void window.takoyaki?.surface.focus(surfaceId)
     termRef.current?.focus()
   }
 
@@ -630,6 +652,8 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
         background: colors.terminalBg,
         zIndex: isFocused && isVisible ? 2 : 1,
       }}
+      onMouseDown={handleMouseDown}
+      onFocusCapture={handleFocusWithin}
       onClick={handleClick}
       onWheel={handleWheel}
     >
@@ -654,7 +678,8 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
           className="shrink-0 flex items-center justify-end px-2 py-1"
           style={{
             minHeight: 30,
-            background: colors.terminalBg,
+            background: isFocused && isVisible ? colors.bgSubtle : colors.terminalBg,
+            borderBottom: `1px solid ${isFocused && isVisible ? colors.separator : 'transparent'}`,
           }}
         >
           <div className="inline-flex items-center gap-0.5" onMouseDown={(event) => event.stopPropagation()}>
