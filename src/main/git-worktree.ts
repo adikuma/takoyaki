@@ -94,6 +94,10 @@ function isLikelyWorktreeInUseError(message: string): boolean {
   )
 }
 
+function isStaleManagedWorktreeError(message: string): boolean {
+  return /not a working tree|is not a working tree|not a git repository/i.test(message)
+}
+
 function formatRemoveTaskError(message: string): string {
   if (isLikelyWorktreeInUseError(message)) {
     return 'Task worktree is still in use. Close running processes, terminals, or editors using it and try again.'
@@ -225,9 +229,28 @@ function removeTaskMetadata(projectRoot: string, worktreePath: string): void {
   writeTaskMetadata(projectRoot, remaining)
 }
 
+async function cleanupStaleTaskMetadata(projectRoot: string, worktreePath: string): Promise<RemoveTaskResult> {
+  await runGit(projectRoot, ['worktree', 'prune']).catch(() => '')
+  removeTaskMetadata(projectRoot, worktreePath)
+  return {
+    ok: true,
+    blocked: false,
+    detail: 'Task entry removed. Worktree was already unavailable. Branch was kept.',
+  }
+}
+
 async function refExists(projectRoot: string, refName: string): Promise<boolean> {
   try {
     await runGit(projectRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${refName}`])
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function hasInitialCommit(projectRoot: string): Promise<boolean> {
+  try {
+    await runGit(projectRoot, ['rev-parse', '--verify', 'HEAD'])
     return true
   } catch {
     return false
@@ -374,6 +397,9 @@ export class GitWorktreeService {
   async createTask(options: CreateTaskOptions): Promise<CreateTaskResult> {
     const taskTitle = options.taskTitle.trim()
     if (!taskTitle) throw new Error('Task title is required')
+    if (!(await hasInitialCommit(options.projectRoot))) {
+      throw new Error('Create an initial commit before creating tasks/worktrees.')
+    }
 
     const baseBranch = options.baseBranch?.trim() || (await this.getCurrentBranch(options.projectRoot))
     const slug = slugify(taskTitle)
@@ -441,6 +467,9 @@ export class GitWorktreeService {
         detail: 'Task worktree removed. Branch was kept.',
       }
     } catch (error) {
+      if (isStaleManagedWorktreeError(error instanceof Error ? error.message : '')) {
+        return cleanupStaleTaskMetadata(projectRoot, worktreePath)
+      }
       return {
         ok: false,
         blocked: false,

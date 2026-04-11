@@ -277,6 +277,17 @@ export function getProjectBranchLabel(workspace: Pick<Workspace, 'gitEnabled' | 
   return workspace.branchName ? `@${workspace.branchName}` : 'detached'
 }
 
+export const TASK_TITLE_REQUIRED_ERROR = 'Task name is required.'
+export const TASK_BRANCH_REQUIRED_ERROR = 'Branch name is required.'
+
+export function getTaskTitleValidationError(taskTitle: string): string | null {
+  return taskTitle.trim() ? null : TASK_TITLE_REQUIRED_ERROR
+}
+
+export function getTaskBranchValidationError(branchName: string): string | null {
+  return branchName.trim() ? null : TASK_BRANCH_REQUIRED_ERROR
+}
+
 const editorMenuItems: { target: EditorKind; label: string }[] = [
   { target: 'cursor', label: 'Cursor' },
   { target: 'vscode', label: 'VS Code' },
@@ -430,6 +441,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
   const [confirmClose, setConfirmClose] = useState<{ id: string; title: string } | null>(null)
   const [taskModalProjectId, setTaskModalProjectId] = useState<string | null>(null)
   const [taskTitle, setTaskTitle] = useState('')
+  const [taskBranchName, setTaskBranchName] = useState('')
   const [taskBranches, setTaskBranches] = useState<string[]>([])
   const [taskBranchesLoading, setTaskBranchesLoading] = useState(false)
   const [taskBaseBranch, setTaskBaseBranch] = useState('')
@@ -445,6 +457,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
   const [openingWorkspaceId, setOpeningWorkspaceId] = useState<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const taskTitleRef = useRef<HTMLInputElement>(null)
+  const taskBranchNameRef = useRef<HTMLInputElement>(null)
 
   // split workspaces into projects and group tasks by parent
   const projects = useMemo(() => workspaces.filter((workspace) => workspace.kind === 'project'), [workspaces])
@@ -494,6 +507,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
   useEffect(() => {
     if (!taskModalProjectId) return
     setTaskTitle('')
+    setTaskBranchName('')
     setTaskBaseBranch('')
     setTaskCreateError(null)
     setTaskCreating(false)
@@ -515,11 +529,25 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
 
   // creates a git worktree task under the selected project
   const createTask = async () => {
-    if (!taskModalProjectId || !taskTitle.trim()) return
+    if (!taskModalProjectId) return
+    const taskTitleValidationError = getTaskTitleValidationError(taskTitle)
+    if (taskTitleValidationError) {
+      setTaskCreateError(taskTitleValidationError)
+      setTimeout(() => taskTitleRef.current?.focus(), 0)
+      return
+    }
+    const taskBranchValidationError = getTaskBranchValidationError(taskBranchName)
+    if (taskBranchValidationError) {
+      setTaskCreateError(taskBranchValidationError)
+      setTimeout(() => taskBranchNameRef.current?.focus(), 0)
+      return
+    }
+
     setTaskCreating(true)
     setTaskCreateError(null)
     const result = await window.takoyaki.workspace.createTask(taskModalProjectId, {
       taskTitle: taskTitle.trim(),
+      branchName: taskBranchName.trim(),
       baseBranch: taskBaseBranch || undefined,
     })
     setTaskCreating(false)
@@ -937,29 +965,76 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
               <div className="text-[13px] font-semibold" style={{ color: colors.textPrimary }}>
                 New Task
               </div>
-              <div className="mt-1 text-[11px]" style={{ color: colors.textMuted }}>
-                Create an isolated worktree and branch under this project.
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label
+                className="text-[10px] font-semibold"
+                style={{ color: colors.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' }}
+              >
+                Task Name
+              </label>
+              <div
+                className="flex items-center gap-2"
+                style={{ padding: '8px 10px', borderRadius: 8, background: colors.bgInput, color: colors.textMuted }}
+              >
+                <FolderClosed size={sizes.iconSm} strokeWidth={1.8} />
+                <input
+                  ref={taskTitleRef}
+                  value={taskTitle}
+                  onChange={(e) => {
+                    const nextTitle = e.target.value
+                    setTaskTitle(nextTitle)
+                    if (taskCreateError === TASK_TITLE_REQUIRED_ERROR && nextTitle.trim()) {
+                      setTaskCreateError(null)
+                    }
+                  }}
+                  placeholder="sidebar label and folder name"
+                  className="flex-1 bg-transparent text-[12px] outline-none min-w-0 takoyaki-input"
+                  style={{ color: colors.textPrimary }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !taskCreating) {
+                      e.preventDefault()
+                      void createTask()
+                    }
+                  }}
+                />
               </div>
             </div>
 
-            <div
-              className="flex items-center gap-2"
-              style={{ padding: '8px 10px', borderRadius: 8, background: colors.bgInput, color: colors.textMuted }}
-            >
-              <GitBranchIcon size={sizes.iconSm} />
-              <input
-                ref={taskTitleRef}
-                value={taskTitle}
-                onChange={(e) => setTaskTitle(e.target.value)}
-                placeholder="task title"
-                className="flex-1 bg-transparent text-[12px] outline-none min-w-0 takoyaki-input"
-                style={{ color: colors.textPrimary, fontFamily: fonts.mono }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && taskTitle.trim() && !taskCreating) {
-                    void createTask()
-                  }
-                }}
-              />
+            <div className="flex flex-col gap-1.5">
+              <label
+                className="text-[10px] font-semibold"
+                style={{ color: colors.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase' }}
+              >
+                Branch Name
+              </label>
+              <div
+                className="flex items-center gap-2"
+                style={{ padding: '8px 10px', borderRadius: 8, background: colors.bgInput, color: colors.textMuted }}
+              >
+                <GitBranchIcon size={sizes.iconSm} />
+                <input
+                  ref={taskBranchNameRef}
+                  value={taskBranchName}
+                  onChange={(e) => {
+                    const nextBranchName = e.target.value
+                    setTaskBranchName(nextBranchName)
+                    if (taskCreateError === TASK_BRANCH_REQUIRED_ERROR && nextBranchName.trim()) {
+                      setTaskCreateError(null)
+                    }
+                  }}
+                  placeholder="exact git branch name"
+                  className="flex-1 bg-transparent text-[12px] outline-none min-w-0 takoyaki-input"
+                  style={{ color: colors.textPrimary, fontFamily: fonts.mono }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !taskCreating) {
+                      e.preventDefault()
+                      void createTask()
+                    }
+                  }}
+                />
+              </div>
             </div>
 
             <div className="flex flex-col gap-1.5">
@@ -999,7 +1074,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
                 onClick={() => {
                   void createTask()
                 }}
-                disabled={!taskTitle.trim() || taskCreating}
+                disabled={taskCreating}
                 className="takoyaki-btn px-3 py-1.5 rounded-md text-[11px] cursor-pointer disabled:opacity-50"
                 style={{ ...button.base, color: colors.textPrimary }}
                 onMouseEnter={(e) => {

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { canUseProjectGitActions, getActiveProjectId, getProjectBranchLabel } from '../renderer/Sidebar'
+import {
+  canUseProjectGitActions,
+  getActiveProjectId,
+  getProjectBranchLabel,
+  getTaskBranchValidationError,
+  getTaskTitleValidationError,
+  TASK_BRANCH_REQUIRED_ERROR,
+  TASK_TITLE_REQUIRED_ERROR,
+} from '../renderer/Sidebar'
 import { sortProjectsByPinned } from '../renderer/pinned-projects'
 import type { Workspace } from '../renderer/types'
 
@@ -38,6 +46,18 @@ describe('sidebar active project selection', () => {
 
   it('shows detached when git exists without a named branch', () => {
     expect(getProjectBranchLabel({ gitEnabled: true, branchName: null })).toBe('detached')
+  })
+
+  it('requires a non-empty task title', () => {
+    expect(getTaskTitleValidationError('')).toBe(TASK_TITLE_REQUIRED_ERROR)
+    expect(getTaskTitleValidationError('   ')).toBe(TASK_TITLE_REQUIRED_ERROR)
+    expect(getTaskTitleValidationError('feature/activate')).toBeNull()
+  })
+
+  it('requires a non-empty task branch name', () => {
+    expect(getTaskBranchValidationError('')).toBe(TASK_BRANCH_REQUIRED_ERROR)
+    expect(getTaskBranchValidationError('   ')).toBe(TASK_BRANCH_REQUIRED_ERROR)
+    expect(getTaskBranchValidationError('feature/activate')).toBeNull()
   })
 
   it('disables git only actions for non git projects', () => {

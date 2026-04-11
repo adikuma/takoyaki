@@ -69,6 +69,7 @@ describe('GitWorktreeService', () => {
 
   it('creates a task from the current branch with an auto-generated unique branch name', async () => {
     const managedPath = path.join(repoParent, 'repo-auth-refactor')
+    mockGit(repoRoot, ['rev-parse', '--verify', 'HEAD'], 'abc123\n')
     mockGit(repoRoot, ['branch', '--show-current'], 'main\n')
     mockGit(repoRoot, ['show-ref', '--verify', '--quiet', 'refs/heads/task/auth-refactor'], '', 'missing')
     mockGit(repoRoot, ['worktree', 'add', '-b', 'task/auth-refactor', managedPath, 'main'], '')
@@ -89,6 +90,7 @@ describe('GitWorktreeService', () => {
 
   it('adds a numeric suffix when the auto-generated branch already exists', async () => {
     const managedPath = path.join(repoParent, 'repo-auth-refactor')
+    mockGit(repoRoot, ['rev-parse', '--verify', 'HEAD'], 'abc123\n')
     mockGit(repoRoot, ['branch', '--show-current'], 'main\n')
     mockGit(repoRoot, ['show-ref', '--verify', '--quiet', 'refs/heads/task/auth-refactor'], '')
     mockGit(repoRoot, ['show-ref', '--verify', '--quiet', 'refs/heads/task/auth-refactor-2'], '', 'missing')
@@ -100,6 +102,17 @@ describe('GitWorktreeService', () => {
     })
 
     expect(result.branchName).toBe('task/auth-refactor-2')
+  })
+
+  it('returns a friendly error when the repo has no initial commit yet', async () => {
+    mockGit(repoRoot, ['rev-parse', '--verify', 'HEAD'], '', 'fatal: Needed a single revision')
+
+    await expect(
+      service.createTask({
+        projectRoot: repoRoot,
+        taskTitle: 'Auth Refactor',
+      }),
+    ).rejects.toThrow('Create an initial commit before creating tasks/worktrees.')
   })
 
   it('blocks removal when the task worktree is dirty', async () => {
@@ -185,6 +198,37 @@ describe('GitWorktreeService', () => {
       blocked: false,
       detail: 'Task worktree is still in use. Close running processes, terminals, or editors using it and try again.',
     })
+  })
+
+  it('cleans up stale task metadata when the worktree is already unavailable', async () => {
+    const metadataDir = path.join(repoRoot, '.git')
+    const worktreePath = path.join(repoParent, 'repo-task-stale')
+    fs.mkdirSync(metadataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(metadataDir, 'takoyaki-tasks.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            taskTitle: 'Stale Task',
+            branchName: 'feature/stale-task',
+            baseBranch: 'main',
+            worktreePath,
+            createdAt: 1,
+          },
+        ],
+      }),
+      'utf-8',
+    )
+    mockGit(worktreePath, ['status', '--porcelain=v1', '-uall'], '')
+    mockGit(repoRoot, ['worktree', 'remove', worktreePath], '', `fatal: '${worktreePath}' is not a working tree`)
+    mockGit(repoRoot, ['worktree', 'prune'], '')
+
+    await expect(service.removeTask(repoRoot, worktreePath)).resolves.toEqual({
+      ok: true,
+      blocked: false,
+      detail: 'Task entry removed. Worktree was already unavailable. Branch was kept.',
+    })
+    expect(fs.existsSync(path.join(metadataDir, 'takoyaki-tasks.json'))).toBe(false)
   })
 
   it('lists only metadata-backed worktrees and restores titles from metadata', async () => {
