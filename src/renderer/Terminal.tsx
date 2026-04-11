@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type WheelEvent as ReactWheelEvent } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -10,6 +10,7 @@ import type { TerminalFrame } from './terminal-layout'
 import { matchTakoyakiShortcut } from '../shared/shortcuts'
 import { Tooltip } from './Tooltip'
 import '@xterm/xterm/css/xterm.css'
+import { DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_STEP, clampTerminalFontSize } from '../shared/terminal-zoom'
 
 let terminalRuntimeInfoPromise: Promise<TerminalRuntimeInfo> | null = null
 const TERMINAL_SCROLL_SENSITIVITY = 2
@@ -66,6 +67,7 @@ function shouldLetTerminalOwnControlKey(event: KeyboardEvent): boolean {
 interface Props {
   surfaceId: string
   terminalId: string
+  fontSize: number
   frame: TerminalFrame | null
   isFocused?: boolean
 }
@@ -115,7 +117,7 @@ function PaneToolbarButton({
   )
 }
 
-export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
+export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -128,6 +130,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
   const hydratedRef = useRef(false)
   const lastAppliedEventIdRef = useRef(0)
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const fontSizeRef = useRef(clampTerminalFontSize(fontSize ?? DEFAULT_TERMINAL_FONT_SIZE))
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [isAlternateScreen, setIsAlternateScreen] = useState(false)
@@ -184,6 +187,39 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
       })
     }, 32)
   }, [clearPendingResize, terminalId])
+
+  const applyTerminalFontSize = useCallback(
+    (nextFontSize: number) => {
+      const clamped = clampTerminalFontSize(nextFontSize)
+      fontSizeRef.current = clamped
+      const term = termRef.current
+      if (!term || term.options.fontSize === clamped) return
+      term.options.fontSize = clamped
+      requestResize()
+    },
+    [requestResize],
+  )
+
+  const setPaneFontSize = useCallback(
+    (nextFontSize: number) => {
+      const clamped = clampTerminalFontSize(nextFontSize)
+      if (clamped === fontSizeRef.current) return
+      applyTerminalFontSize(clamped)
+      void window.takoyaki?.workspace.setSurfaceFontSize(surfaceId, clamped)
+    },
+    [applyTerminalFontSize, surfaceId],
+  )
+
+  const adjustPaneFontSize = useCallback(
+    (delta: number) => {
+      setPaneFontSize(fontSizeRef.current + delta)
+    },
+    [setPaneFontSize],
+  )
+
+  useEffect(() => {
+    applyTerminalFontSize(fontSize)
+  }, [applyTerminalFontSize, fontSize])
 
   const queueTerminalTask = useCallback((task: () => Promise<void> | void) => {
     writeQueueRef.current = writeQueueRef.current.then(async () => {
@@ -293,7 +329,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
         const term = new XTerm({
           fontFamily: fonts.mono,
-          fontSize: 14,
+          fontSize: fontSizeRef.current,
           lineHeight: 1.25,
           cursorBlink: false,
           cursorStyle: 'bar',
@@ -319,6 +355,26 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
         term.attachCustomKeyEventHandler((event) => {
           if (event.type !== 'keydown') return true
+          const modifierKey = event.ctrlKey || event.metaKey
+          const key = event.key
+          if (modifierKey && !event.altKey) {
+            const wantsZoomIn = key === '=' || key === '+' || event.code === 'NumpadAdd'
+            const wantsZoomOut = key === '-' || event.code === 'NumpadSubtract'
+            const wantsZoomReset =
+              (!event.shiftKey && key === '0') ||
+              (!event.shiftKey && event.code === 'Digit0') ||
+              event.code === 'Numpad0'
+            if (wantsZoomIn || wantsZoomOut || wantsZoomReset) {
+              event.preventDefault()
+              event.stopPropagation()
+              if (wantsZoomReset) {
+                setPaneFontSize(DEFAULT_TERMINAL_FONT_SIZE)
+              } else {
+                adjustPaneFontSize(wantsZoomIn ? TERMINAL_FONT_SIZE_STEP : -TERMINAL_FONT_SIZE_STEP)
+              }
+              return false
+            }
+          }
           if (
             event.ctrlKey &&
             !event.altKey &&
@@ -453,11 +509,13 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
       setShowScrollToBottom(false)
     }
   }, [
+    adjustPaneFontSize,
     applyEvent,
     applySnapshot,
     clearPendingResize,
     queueTerminalTask,
     requestResize,
+    setPaneFontSize,
     syncScrollAffordances,
     terminalId,
   ])
@@ -533,6 +591,17 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
     void window.takoyaki?.workspace.closeSurface(surfaceId)
   }
 
+  const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!isVisible) return
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+    event.preventDefault()
+    event.stopPropagation()
+    void window.takoyaki?.surface.focus(surfaceId)
+    termRef.current?.focus()
+    if (event.deltaY === 0) return
+    adjustPaneFontSize(event.deltaY < 0 ? TERMINAL_FONT_SIZE_STEP : -TERMINAL_FONT_SIZE_STEP)
+  }
+
   const wrapperStyle = frame
     ? {
         top: frame.top,
@@ -562,6 +631,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
         zIndex: isFocused && isVisible ? 2 : 1,
       }}
       onClick={handleClick}
+      onWheel={handleWheel}
     >
       {isFocused && isVisible && (
         <div

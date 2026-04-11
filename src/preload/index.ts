@@ -20,7 +20,7 @@ interface PreloadWorkspace {
 }
 
 type PreloadPaneTree =
-  | { type: 'leaf'; surfaceId: string; terminalId: string }
+  | { type: 'leaf'; surfaceId: string; terminalId: string; fontSize: number }
   | { type: 'split'; direction: 'horizontal' | 'vertical'; first: PreloadPaneTree; second: PreloadPaneTree }
 
 interface PreloadWorkspaceSnapshot {
@@ -175,6 +175,8 @@ const api = {
     splitSurface: (surfaceId: string, direction: 'horizontal' | 'vertical') =>
       ipcRenderer.invoke('workspace:split-surface', surfaceId, direction),
     closeSurface: (surfaceId: string) => ipcRenderer.invoke('workspace:close-surface', surfaceId),
+    setSurfaceFontSize: (surfaceId: string, fontSize: number) =>
+      ipcRenderer.invoke('workspace:set-surface-font-size', surfaceId, fontSize),
     current: () => ipcRenderer.invoke('workspace:current'),
     tree: (wsId?: string) => ipcRenderer.invoke('workspace:tree', wsId),
     onChange: (cb: (snapshot: PreloadWorkspaceSnapshot) => void) => {

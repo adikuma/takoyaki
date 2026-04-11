@@ -20,7 +20,7 @@ export interface Workspace {
 // leaf is a single terminal pane and if leaf then i just need the surfaceId and terminalId
 // split is a horizontal or vertical split of two panes and if split then i just need the direction and the first and second children (for more splits)
 export type PaneTree =
-  | { type: 'leaf'; surfaceId: string; terminalId: string }
+  | { type: 'leaf'; surfaceId: string; terminalId: string; fontSize: number }
   | { type: 'split'; direction: 'horizontal' | 'vertical'; first: PaneTree; second: PaneTree }
 
 // state of the application to reload on app restart
@@ -244,6 +244,7 @@ declare global {
         createPane: (workspaceId: string) => Promise<boolean>
         splitSurface: (surfaceId: string, direction: 'horizontal' | 'vertical') => Promise<boolean>
         closeSurface: (surfaceId: string) => Promise<boolean>
+        setSurfaceFontSize: (surfaceId: string, fontSize: number) => Promise<boolean>
         current: () => Promise<Workspace | null>
         tree: (wsId?: string) => Promise<PaneTree | null>
         onChange: (cb: (snapshot: WorkspaceSnapshot) => void) => () => void

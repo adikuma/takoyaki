@@ -411,6 +411,21 @@ describe('WorkspaceManager', () => {
       expect(summary?.paneCount).toBe(2)
       expect(summary?.surfaceIds).toHaveLength(2)
     })
+
+    it('inherits the source pane font size when splitting', () => {
+      const ws = wm.create()
+      const originalSurfaceId = ws.focusedSurfaceId!
+
+      expect(wm.setSurfaceFontSize(originalSurfaceId, 18)).toBe(true)
+      expect(wm.splitFocused('horizontal')).toBe(true)
+
+      const tree = wm.getTree(ws.id)
+      expect(tree?.type).toBe('split')
+      if (tree?.type === 'split' && tree.first.type === 'leaf' && tree.second.type === 'leaf') {
+        expect(tree.first.fontSize).toBe(18)
+        expect(tree.second.fontSize).toBe(18)
+      }
+    })
   })
 
   describe('closeFocused', () => {
@@ -469,6 +484,27 @@ describe('WorkspaceManager', () => {
       expect(wm.getTree(ws.id)?.type).toBe('leaf')
       expect(wm.current()?.focusedSurfaceId).toBeTruthy()
     })
+
+    it('updates only the targeted surface font size', () => {
+      const ws = wm.create()
+      const originalId = ws.focusedSurfaceId!
+      wm.splitFocused('horizontal')
+
+      const current = wm.current()
+      expect(current?.focusedSurfaceId).toBeTruthy()
+      const newSurfaceId = current?.focusedSurfaceId as string
+
+      expect(wm.setSurfaceFontSize(newSurfaceId, 19)).toBe(true)
+
+      const tree = wm.getTree(ws.id)
+      expect(tree?.type).toBe('split')
+      if (tree?.type === 'split' && tree.first.type === 'leaf' && tree.second.type === 'leaf') {
+        const first = tree.first.surfaceId === originalId ? tree.first : tree.second
+        const second = tree.first.surfaceId === newSurfaceId ? tree.first : tree.second
+        expect(first.fontSize).toBe(14)
+        expect(second.fontSize).toBe(19)
+      }
+    })
   })
 
   describe('focusSurface', () => {
@@ -509,6 +545,31 @@ describe('WorkspaceManager', () => {
       expect(wm2.list().find((w) => w.title === 'project-a')?.projectRoot).toBe(projectRoot)
       expect(wm2.list().find((w) => w.title === 'project-a')?.gitEnabled).toBe(true)
       expect(wm2.list().find((w) => w.title === 'project-b')?.gitEnabled).toBe(false)
+    })
+
+    it('persists per-pane font sizes', () => {
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-fonts'))
+      const ws = wm.create('project-fonts', projectRoot, projectRoot, true)
+      const originalSurfaceId = ws.focusedSurfaceId!
+
+      wm.setSurfaceFontSize(originalSurfaceId, 17)
+      wm.splitFocused('horizontal')
+      expect(wm.current()?.focusedSurfaceId).toBeTruthy()
+      const newSurfaceId = wm.current()?.focusedSurfaceId as string
+      wm.setSurfaceFontSize(newSurfaceId, 20)
+
+      wm.save()
+
+      const tm2 = new TerminalManager()
+      const wm2 = new WorkspaceManager(tm2)
+      wm2.load()
+
+      const restoredTree = wm2.getTree(ws.id)
+      expect(restoredTree?.type).toBe('split')
+      if (restoredTree?.type === 'split' && restoredTree.first.type === 'leaf' && restoredTree.second.type === 'leaf') {
+        const fontSizes = [restoredTree.first.fontSize, restoredTree.second.fontSize].sort((a, b) => a - b)
+        expect(fontSizes).toEqual([17, 20])
+      }
     })
 
     it('persists and restores task metadata', () => {
@@ -552,6 +613,52 @@ describe('WorkspaceManager', () => {
       expect(restored?.paneCount).toBe(0)
       expect(restored?.focusedSurfaceId).toBeNull()
       expect(wm2.getTree(ws.id)).toBeNull()
+    })
+
+    it('defaults missing persisted pane font sizes to 14', () => {
+      const stateDir = path.join(workspaceState.home, '.takoyaki')
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-legacy-font'))
+      fs.mkdirSync(stateDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(stateDir, 'state.json'),
+        JSON.stringify(
+          {
+            activeWorkspaceId: 'legacy-project',
+            workspaces: [
+              {
+                id: 'legacy-project',
+                title: 'legacy-project',
+                kind: 'project',
+                parentProjectId: null,
+                focusedSurfaceId: 'surface-a',
+                workingDirectory: projectRoot,
+                projectRoot,
+                gitEnabled: true,
+                branchName: 'main',
+                baseBranch: null,
+                paneTree: {
+                  type: 'leaf',
+                  surfaceId: 'surface-a',
+                  cwd: projectRoot,
+                },
+              },
+            ],
+          },
+          null,
+          2,
+        ),
+        'utf-8',
+      )
+
+      const tm2 = new TerminalManager()
+      const wm2 = new WorkspaceManager(tm2)
+      wm2.load()
+
+      const restoredTree = wm2.getTree('legacy-project')
+      expect(restoredTree?.type).toBe('leaf')
+      if (restoredTree?.type === 'leaf') {
+        expect(restoredTree.fontSize).toBe(14)
+      }
     })
 
     it('skips persisted projects whose paths no longer exist', () => {

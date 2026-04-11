@@ -557,6 +557,9 @@ function setupIpc(): void {
     workspaces.splitSurface(surfaceId, direction),
   )
   ipcMain.handle('workspace:close-surface', (_, surfaceId: string) => workspaces.closeSurface(surfaceId))
+  ipcMain.handle('workspace:set-surface-font-size', (_, surfaceId: string, fontSize: number) =>
+    workspaces.setSurfaceFontSize(surfaceId, fontSize),
+  )
   ipcMain.handle('workspace:current', () => workspaces.current())
   // pane tree - single call gets the full tree
   ipcMain.handle('workspace:tree', (_, wsId?: string) => workspaces.getTree(wsId))

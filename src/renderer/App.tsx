@@ -429,6 +429,7 @@ export function App() {
                 key={terminal.terminalId}
                 surfaceId={terminal.surfaceId}
                 terminalId={terminal.terminalId}
+                fontSize={terminal.fontSize}
                 frame={frame}
                 isFocused={Boolean(
                   frame &&
