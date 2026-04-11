@@ -1,6 +1,7 @@
 # Takoyaki
 
-I saw tmux (only through WSL) and other cool ways to manage and multitask in coding environments. I wanted the same for Windows.
+Takoyaki is a Windows-first terminal multiplexer for AI coding agents.
+It brings multiple projects, split panes, git worktree tasks, Claude Code hooks, review tools, and editor actions into one desktop app.
 
 
 ## Features
@@ -8,8 +9,10 @@ I saw tmux (only through WSL) and other cool ways to manage and multitask in cod
 - **Multi-project workspace**
 - **Split panes**
 - **Git worktree tasks**
+- **Review mode**
 - **Claude Code hooks**
 - **Editor integration**
+- **Per-pane terminal zoom**
 - **Dark and light themes**
 - **Session persistence**
 - **Socket RPC**
@@ -24,17 +27,15 @@ See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release notes.
 
 ### Hooks integration
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) - It is fully supported and the hooks configured automatically from Settings panel
-
-> Planning on adding Codex and OpenCode support too.
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) - fully supported, with hook installation and repair available from the Settings panel
 
 ### Architecture
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a detailed breakdown of the codebase, data flow, and design decisions. (It might not be great, but I promis it will get better)
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a detailed breakdown of the codebase, data flow, and design decisions.
 
-## Tech stack (This is new for me so don't roast me)
+## Tech stack
 
-- Electron 35
+- Electron 41
 - React 19
 - TypeScript
 - Zustand

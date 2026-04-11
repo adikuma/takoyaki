@@ -90,14 +90,14 @@ sequenceDiagram
     participant Main as Main Process
     participant UI as Renderer
 
-    Claude->>Script: Stop hook fires
+    Claude->>Script: Claude hook event fires
     Script->>Script: reads ~/.takoyaki/socket_addr
     Script->>Socket: TCP connect, JSON-RPC status.update
-    Socket->>Main: onStatusUpdate(surfaceId, "finished")
-    Main->>Main: surfaceStatuses map updated
+    Socket->>Main: onStatusUpdate(surfaceId, update)
+    Main->>Main: reduce activity + attention state
     Main-->>UI: status:changed broadcast
-    UI->>UI: sidebar shows ✓ glyph
-    UI->>UI: toast: "Claude finished in {project}"
+    UI->>UI: sidebar shows activity or attention glyph
+    UI->>UI: toast/sidebar update for the affected project
 ```
 
 ## Terminal data flow
@@ -168,7 +168,6 @@ graph LR
 graph TD
     subgraph "~/.takoyaki/"
         state["state.json<br/>workspace layout"]
-        activity["activity.json<br/>activity tracking"]
         prefs["preferences.json<br/>default editor"]
         addr["socket_addr<br/>TCP host:port"]
         notify["bin/takoyaki-notify.js<br/>hook script"]

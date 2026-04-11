@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
 
+## [0.1.1] - 2026-04-12
+
+### Added
+- Per-pane terminal font zoom with keyboard and mouse shortcuts
+- Richer Claude activity and approval state handling for plan and permission flows
+
+### Changed
+- Refactored the sidebar into focused components and hooks to keep the renderer structure easier to maintain
+- Aligned the release metadata, website, and contributor docs with the shipped `v0.1.1` build
+
+### Fixed
+- Improved hook icon placement, scrollbar behavior, and pane toolbar recovery
+- Increased app border contrast and made active pane highlighting more reliable
+- Hardened workspace restore behavior and normalized direct-opened task worktrees under their parent project
+- Made task removal safer on Windows and cleaned up stale task entries when the worktree is already gone
+
 ## [0.1.0] - 2026-04-07
 
 ### Added
