@@ -520,11 +520,6 @@ function setupIpc(): void {
       return { ok: false, blocked: false, detail: 'Parent project not found' }
     }
 
-    const snapshot = workspaces.snapshotWorkspace(taskId)
-    if (!snapshot) {
-      return { ok: false, blocked: false, detail: 'Task could not be snapshotted' }
-    }
-
     const isDirty = await worktreeService.isTaskDirty(task.workingDirectory || '')
     if (isDirty && !force) {
       return {
@@ -534,16 +529,14 @@ function setupIpc(): void {
       }
     }
 
-    workspaces.close(taskId)
     const removal = await worktreeService.removeTask(
       parentProject.projectRoot || parentProject.workingDirectory || '',
       task.workingDirectory || '',
-      true,
+      force,
     )
-    if (!removal.ok) {
-      workspaces.restoreWorkspace(snapshot)
-      return removal
-    }
+    if (!removal.ok) return removal
+
+    workspaces.close(taskId)
 
     noteWorkspaceActivity(task.parentProjectId)
     return removal

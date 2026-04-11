@@ -144,6 +144,49 @@ describe('GitWorktreeService', () => {
     expect(fs.existsSync(path.join(metadataDir, 'takoyaki-tasks.json'))).toBe(false)
   })
 
+  it('removes a clean worktree without forcing', async () => {
+    const metadataDir = path.join(repoRoot, '.git')
+    const worktreePath = path.join(repoParent, 'repo-task-clean')
+    fs.mkdirSync(metadataDir, { recursive: true })
+    fs.writeFileSync(
+      path.join(metadataDir, 'takoyaki-tasks.json'),
+      JSON.stringify({
+        tasks: [
+          {
+            taskTitle: 'Clean Task',
+            branchName: 'feature/clean-task',
+            baseBranch: 'main',
+            worktreePath,
+            createdAt: 1,
+          },
+        ],
+      }),
+      'utf-8',
+    )
+    mockGit(worktreePath, ['status', '--porcelain=v1', '-uall'], '')
+    mockGit(repoRoot, ['worktree', 'remove', worktreePath], '')
+    mockGit(repoRoot, ['worktree', 'prune'], '')
+
+    await expect(service.removeTask(repoRoot, worktreePath)).resolves.toEqual({
+      ok: true,
+      blocked: false,
+      detail: 'Task worktree removed. Branch was kept.',
+    })
+    expect(fs.existsSync(path.join(metadataDir, 'takoyaki-tasks.json'))).toBe(false)
+  })
+
+  it('returns a clearer message when the task worktree is still in use', async () => {
+    const worktreePath = path.join(repoParent, 'repo-task-busy')
+    mockGit(worktreePath, ['status', '--porcelain=v1', '-uall'], '')
+    mockGit(repoRoot, ['worktree', 'remove', '--force', worktreePath], '', 'Access is denied')
+
+    await expect(service.removeTask(repoRoot, worktreePath, true)).resolves.toEqual({
+      ok: false,
+      blocked: false,
+      detail: 'Task worktree is still in use. Close running processes, terminals, or editors using it and try again.',
+    })
+  })
+
   it('lists only metadata-backed worktrees and restores titles from metadata', async () => {
     const managedPath = path.join(repoParent, 'repo-auth-refactor')
     const metadataDir = path.join(repoRoot, '.git')

@@ -4,6 +4,7 @@ import * as path from 'path'
 
 const GIT_TIMEOUT_MS = 12_000
 const TASKS_METADATA_FILE = 'takoyaki-tasks.json'
+const REMOVE_RETRY_DELAYS_MS = [120, 300, 700]
 
 export interface CreateTaskOptions {
   projectRoot: string
@@ -81,6 +82,23 @@ function runGit(cwd: string, args: string[], timeoutMs = GIT_TIMEOUT_MS): Promis
       },
     )
   })
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function isLikelyWorktreeInUseError(message: string): boolean {
+  return /access is denied|device or resource busy|resource busy|permission denied|directory not empty|in use|being used by another process|cannot access the file|used by another process/i.test(
+    message,
+  )
+}
+
+function formatRemoveTaskError(message: string): string {
+  if (isLikelyWorktreeInUseError(message)) {
+    return 'Task worktree is still in use. Close running processes, terminals, or editors using it and try again.'
+  }
+  return message || 'Unable to remove task worktree'
 }
 
 function slugify(value: string): string {
@@ -393,7 +411,28 @@ export class GitWorktreeService {
     }
 
     try {
-      await runGit(projectRoot, ['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath])
+      let lastError: Error | null = null
+      const removeArgs = ['worktree', 'remove', ...(force ? ['--force'] : []), worktreePath]
+
+      for (let attempt = 0; attempt <= REMOVE_RETRY_DELAYS_MS.length; attempt += 1) {
+        try {
+          await runGit(projectRoot, removeArgs)
+          lastError = null
+          break
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error('Unable to remove task worktree')
+          const shouldRetry =
+            process.platform === 'win32' &&
+            attempt < REMOVE_RETRY_DELAYS_MS.length &&
+            isLikelyWorktreeInUseError(lastError.message)
+          if (!shouldRetry) {
+            throw lastError
+          }
+          await delay(REMOVE_RETRY_DELAYS_MS[attempt]!)
+        }
+      }
+
+      if (lastError) throw lastError
       await runGit(projectRoot, ['worktree', 'prune']).catch(() => '')
       removeTaskMetadata(projectRoot, worktreePath)
       return {
@@ -405,7 +444,7 @@ export class GitWorktreeService {
       return {
         ok: false,
         blocked: false,
-        detail: error instanceof Error ? error.message : 'Unable to remove task worktree',
+        detail: formatRemoveTaskError(error instanceof Error ? error.message : 'Unable to remove task worktree'),
       }
     }
   }
