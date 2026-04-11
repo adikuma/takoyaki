@@ -7,7 +7,7 @@ import {
   getTaskTitleValidationError,
   TASK_BRANCH_REQUIRED_ERROR,
   TASK_TITLE_REQUIRED_ERROR,
-} from '../renderer/Sidebar'
+} from '../renderer/sidebar/sidebar-utils'
 import { sortProjectsByPinned } from '../renderer/pinned-projects'
 import type { Workspace } from '../renderer/types'
 
