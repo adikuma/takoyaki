@@ -14,6 +14,7 @@ import { EditorService, type EditorKind, type EditorLaunchTarget } from './edito
 import { PreferencesService } from './preferences'
 import { getTerminalRuntimeInfo } from './terminal-runtime'
 import { ReviewService } from './review'
+import { removeTaskWorkspaceAndWorktree } from './task-removal'
 import { matchTakoyakiShortcut } from '../shared/shortcuts'
 import {
   shouldShowHooksBanner,
@@ -515,34 +516,15 @@ function setupIpc(): void {
   )
   ipcMain.handle('workspace:remove-task', async (_, taskId: string, force = false) => {
     const task = workspaces.get(taskId)
-    if (!task || task.kind !== 'task' || !task.parentProjectId) {
-      return { ok: false, blocked: false, detail: 'Task not found' }
-    }
-
-    const parentProject = workspaces.get(task.parentProjectId)
-    if (!parentProject) {
-      return { ok: false, blocked: false, detail: 'Parent project not found' }
-    }
-
-    const isDirty = await worktreeService.isTaskDirty(task.workingDirectory || '')
-    if (isDirty && !force) {
-      return {
-        ok: false,
-        blocked: true,
-        detail: 'Task has uncommitted changes. Force remove to delete the worktree.',
-      }
-    }
-
-    const removal = await worktreeService.removeTask(
-      parentProject.projectRoot || parentProject.workingDirectory || '',
-      task.workingDirectory || '',
+    const removal = await removeTaskWorkspaceAndWorktree({
+      workspaces,
+      worktreeService,
+      taskId,
       force,
-    )
-    if (!removal.ok) return removal
-
-    workspaces.close(taskId)
-
-    noteWorkspaceActivity(task.parentProjectId)
+    })
+    if (removal.ok && task?.kind === 'task' && task.parentProjectId) {
+      noteWorkspaceActivity(task.parentProjectId)
+    }
     return removal
   })
   ipcMain.handle('workspace:cycle-visible', (_, direction: 'next' | 'prev') => {

@@ -501,15 +501,27 @@ export class WorkspaceManager extends EventEmitter {
     for (const entry of this.state.values()) {
       if (!entry.paneTree || !this.collectSurfaceIds(entry.paneTree).includes(surfaceId)) continue
 
+      const previousFocusedSurfaceId = entry.workspace.focusedSurfaceId
       const termId = this.findTerminalId(entry.paneTree, surfaceId)
+      const removedSurfaceCwd = termId ? this.terminals.getCwd(termId) : entry.workspace.workingDirectory
       if (termId) {
-        entry.workspace.workingDirectory = this.terminals.getCwd(termId)
         this.terminals.destroy(termId)
       }
 
       entry.paneTree = this.removeLeaf(entry.paneTree, surfaceId)
       const remaining = this.collectSurfaceIds(entry.paneTree)
-      entry.workspace.focusedSurfaceId = remaining[0] || null
+      const nextFocusedSurfaceId = !remaining.length
+        ? null
+        : previousFocusedSurfaceId &&
+            previousFocusedSurfaceId !== surfaceId &&
+            remaining.includes(previousFocusedSurfaceId)
+          ? previousFocusedSurfaceId
+          : remaining[0]
+      entry.workspace.focusedSurfaceId = nextFocusedSurfaceId
+      entry.workspace.workingDirectory =
+        nextFocusedSurfaceId && entry.paneTree
+          ? this.cwdForSurface(entry.paneTree, nextFocusedSurfaceId) || entry.workspace.workingDirectory
+          : removedSurfaceCwd
 
       this.emitChange()
       return true
@@ -889,6 +901,11 @@ export class WorkspaceManager extends EventEmitter {
   private resolveSurfaceIdAtPath(tree: PaneTree, path: PathStep[]): string | null {
     const node = this.resolveNodeAtPath(tree, path)
     return node?.type === 'leaf' ? node.surfaceId : null
+  }
+
+  private cwdForSurface(tree: PaneTree | null, surfaceId: string): string | null {
+    const terminalId = this.findTerminalId(tree, surfaceId)
+    return terminalId ? this.terminals.getCwd(terminalId) : null
   }
 
   // serialize tree for saving (strip terminal ids, add per-leaf cwd)

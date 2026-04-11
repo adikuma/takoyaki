@@ -476,6 +476,57 @@ describe('WorkspaceManager', () => {
       expect(wm.current()?.paneCount).toBe(1)
     })
 
+    it('preserves focus when closing a non-focused surface', () => {
+      const ws = wm.create()
+      const originalId = ws.focusedSurfaceId!
+
+      expect(wm.splitFocused('horizontal')).toBe(true)
+      const secondSurfaceId = wm.current()?.focusedSurfaceId as string
+
+      expect(wm.splitSurface(originalId, 'vertical')).toBe(true)
+      const backgroundSurfaceId = wm.current()?.focusedSurfaceId as string
+
+      expect(wm.focusSurface(secondSurfaceId)).toBe(true)
+      expect(wm.closeSurface(backgroundSurfaceId)).toBe(true)
+      expect(wm.current()?.focusedSurfaceId).toBe(secondSurfaceId)
+    })
+
+    it('keeps workspace workingDirectory aligned to the surviving focused pane', () => {
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-review-root'))
+      const serverDir = ensureDir(path.join(projectRoot, 'server'))
+
+      wm.restoreWorkspace({
+        id: 'review-project',
+        title: 'review-project',
+        kind: 'project',
+        parentProjectId: null,
+        focusedSurfaceId: 'surface-root',
+        workingDirectory: projectRoot,
+        projectRoot,
+        gitEnabled: true,
+        branchName: 'main',
+        baseBranch: null,
+        paneTree: {
+          type: 'split',
+          direction: 'horizontal',
+          first: {
+            type: 'leaf',
+            surfaceId: 'surface-root',
+            cwd: projectRoot,
+          },
+          second: {
+            type: 'leaf',
+            surfaceId: 'surface-server',
+            cwd: serverDir,
+          },
+        },
+      })
+
+      expect(wm.closeSurface('surface-server')).toBe(true)
+      expect(wm.get('review-project')?.focusedSurfaceId).toBe('surface-root')
+      expect(wm.get('review-project')?.workingDirectory).toBe(projectRoot)
+    })
+
     it('recreates a pane in an empty workspace', () => {
       const ws = wm.create()
       wm.closeFocused()
