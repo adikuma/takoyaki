@@ -289,6 +289,7 @@ declare global {
         minimize: () => void
         maximize: () => void
         close: () => void
+        openExternal: (url: string) => Promise<boolean>
       }
       onShortcut: (cb: (action: ShortcutAction) => void) => () => void
     }

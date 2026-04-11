@@ -192,6 +192,7 @@ const api = {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
     close: () => ipcRenderer.invoke('window:close'),
+    openExternal: (url: string) => ipcRenderer.invoke('window:open-external', url) as Promise<boolean>,
   },
   hooks: {
     shouldShow: () => ipcRenderer.invoke('hooks:should-show'),

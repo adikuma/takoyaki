@@ -1,10 +1,22 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
 type PtyDataCallback = (data: string) => void
 type PtyExitCallback = (event: { exitCode: number; signal?: number }) => void
+
+const workspaceState = vi.hoisted(() => {
+  const path = require('path')
+  return {
+    home: path.join(process.cwd(), '.tmp-workspace-home'),
+  }
+})
+
+vi.mock('os', async () => {
+  const actual = await vi.importActual<typeof import('os')>('os')
+  return { ...actual, homedir: () => workspaceState.home }
+})
 
 // mock node-pty
 vi.mock('node-pty', () => {
@@ -37,9 +49,20 @@ describe('WorkspaceManager', () => {
   let wm: WorkspaceManager
   let tm: TerminalManager
 
+  function ensureDir(dir: string): string {
+    fs.mkdirSync(dir, { recursive: true })
+    return dir
+  }
+
   beforeEach(() => {
+    fs.rmSync(workspaceState.home, { recursive: true, force: true })
+    vi.clearAllMocks()
     tm = new TerminalManager()
     wm = new WorkspaceManager(tm)
+  })
+
+  afterEach(() => {
+    fs.rmSync(workspaceState.home, { recursive: true, force: true })
   })
 
   describe('create', () => {
@@ -413,7 +436,10 @@ describe('WorkspaceManager', () => {
 
   describe('persistence', () => {
     it('save and load round-trips workspace layout', () => {
-      wm.create('project-a', '/workspace/app/backend', '/workspace/app', true)
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-a'))
+      const backendDir = ensureDir(path.join(projectRoot, 'backend'))
+
+      wm.create('project-a', backendDir, projectRoot, true)
       wm.splitFocused('horizontal')
       wm.create('project-b')
 
@@ -428,7 +454,7 @@ describe('WorkspaceManager', () => {
       expect(wm2.list()).toHaveLength(2)
       expect(wm2.list().map((w) => w.title)).toContain('project-a')
       expect(wm2.list().map((w) => w.title)).toContain('project-b')
-      expect(wm2.list().find((w) => w.title === 'project-a')?.projectRoot).toBe('/workspace/app')
+      expect(wm2.list().find((w) => w.title === 'project-a')?.projectRoot).toBe(projectRoot)
       expect(wm2.list().find((w) => w.title === 'project-a')?.gitEnabled).toBe(true)
       expect(wm2.list().find((w) => w.title === 'project-b')?.gitEnabled).toBe(false)
     })
@@ -437,10 +463,11 @@ describe('WorkspaceManager', () => {
       // load() skips tasks where the working directory doesnt exist on disk
       // use a real temp directory so the existence check passes
       const taskDir = path.join(os.tmpdir(), 'takoyaki-test-task-' + Date.now())
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-a'))
       fs.mkdirSync(taskDir, { recursive: true })
 
       try {
-        const project = wm.create('project-a', '/workspace/app', '/workspace/app', true)
+        const project = wm.create('project-a', projectRoot, projectRoot, true)
         wm.createTask(project.id, 'auth refactor', taskDir, 'task/auth-refactor', 'main')
 
         wm.save()
@@ -459,7 +486,8 @@ describe('WorkspaceManager', () => {
     })
 
     it('persists and restores empty workspaces', () => {
-      const ws = wm.create('project-a', '/workspace/app', '/workspace/app', true)
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-a'))
+      const ws = wm.create('project-a', projectRoot, projectRoot, true)
       wm.closeFocused()
 
       wm.save()
@@ -472,6 +500,20 @@ describe('WorkspaceManager', () => {
       expect(restored?.paneCount).toBe(0)
       expect(restored?.focusedSurfaceId).toBeNull()
       expect(wm2.getTree(ws.id)).toBeNull()
+    })
+
+    it('skips persisted projects whose paths no longer exist', () => {
+      const projectRoot = ensureDir(path.join(workspaceState.home, 'project-a'))
+      const ws = wm.create('project-a', projectRoot, projectRoot, true)
+
+      wm.save()
+      fs.rmSync(projectRoot, { recursive: true, force: true })
+
+      const tm2 = new TerminalManager()
+      const wm2 = new WorkspaceManager(tm2)
+      wm2.load()
+
+      expect(wm2.get(ws.id)).toBeNull()
     })
   })
 })

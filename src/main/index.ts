@@ -1,6 +1,6 @@
 // electron main process entry
 
-import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, dialog } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, dialog, shell } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { join } from 'path'
@@ -175,17 +175,24 @@ async function recoverProjectTasks(projectId: string): Promise<void> {
   const project = workspaces.get(projectId)
   // skip git recovery for plain folders
   if (!project || project.kind !== 'project' || !project.gitEnabled) return
-  const recovered = await worktreeService.listManagedWorktrees(project.projectRoot || project.workingDirectory || '')
-  if (!recovered.length) return
-  workspaces.syncRecoveredTasks(
-    projectId,
-    recovered.map((task) => ({
-      title: task.taskTitle,
-      worktreePath: task.worktreePath,
-      branchName: task.branchName,
-      baseBranch: task.baseBranch,
-    })),
-  )
+  const projectPath = project.projectRoot || project.workingDirectory || ''
+  if (!projectPath || !fs.existsSync(projectPath)) return
+
+  try {
+    const recovered = await worktreeService.listManagedWorktrees(projectPath)
+    if (!recovered.length) return
+    workspaces.syncRecoveredTasks(
+      projectId,
+      recovered.map((task) => ({
+        title: task.taskTitle,
+        worktreePath: task.worktreePath,
+        branchName: task.branchName,
+        baseBranch: task.baseBranch,
+      })),
+    )
+  } catch {
+    // stale saved workspaces or temporary git errors should not break startup or workspace switching
+  }
 }
 
 async function refreshProjectGitState(projectId: string | null, cwdOverride?: string | null): Promise<void> {
@@ -196,6 +203,7 @@ async function refreshProjectGitState(projectId: string | null, cwdOverride?: st
 
   const candidatePath =
     cwdOverride || workspaces.focusedCwd(projectId) || project.projectRoot || project.workingDirectory
+  if (!candidatePath || !fs.existsSync(candidatePath)) return
   const repoRoot = await worktreeService.detectRepoRoot(candidatePath)
   if (!repoRoot) return
 
@@ -566,6 +574,18 @@ function setupIpc(): void {
     }
   })
   ipcMain.handle('window:close', () => mainWindow?.close())
+  ipcMain.handle('window:open-external', async (_, rawUrl: string) => {
+    try {
+      const url = new URL(rawUrl)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return false
+      }
+      await shell.openExternal(url.toString())
+      return true
+    } catch {
+      return false
+    }
+  })
 
   terminals.on('prompt', ({ terminalId, cwd }) => {
     const workspaceId = workspaces.workspaceForTerminal(terminalId)

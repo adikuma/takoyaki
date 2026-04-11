@@ -584,11 +584,22 @@ export class WorkspaceManager extends EventEmitter {
       for (const ws of raw.workspaces || []) {
         const normalizedWorkingDirectory =
           typeof ws.workingDirectory === 'string' ? normalizePath(ws.workingDirectory) : ''
+        const normalizedProjectRoot = typeof ws.projectRoot === 'string' ? normalizePath(ws.projectRoot) : ''
+        const hasWorkingDirectory =
+          Boolean(normalizedWorkingDirectory) &&
+          fs.existsSync(ws.workingDirectory) &&
+          fs.statSync(ws.workingDirectory).isDirectory()
+        const resolvedProjectRoot = ws.projectRoot || ws.workingDirectory
+        const hasProjectRoot =
+          Boolean(normalizedProjectRoot || normalizedWorkingDirectory) &&
+          Boolean(resolvedProjectRoot) &&
+          fs.existsSync(resolvedProjectRoot) &&
+          fs.statSync(resolvedProjectRoot).isDirectory()
         const isLegacyTask =
           ws.kind === 'task' && normalizedWorkingDirectory.startsWith(`${normalizePath(LEGACY_TASK_ROOT)}/`)
-        const isMissingTaskPath =
-          ws.kind === 'task' && (!normalizedWorkingDirectory || !fs.existsSync(ws.workingDirectory))
-        if (isLegacyTask || isMissingTaskPath) continue
+        const isMissingTaskPath = ws.kind === 'task' && !hasWorkingDirectory
+        const isMissingProjectPath = ws.kind !== 'task' && (!hasWorkingDirectory || !hasProjectRoot)
+        if (isLegacyTask || isMissingTaskPath || isMissingProjectPath) continue
 
         const paneTree = this.restoreTerminalIds(ws.paneTree, ws.workingDirectory)
         const surfaceIds = this.collectSurfaceIds(paneTree)

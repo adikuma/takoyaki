@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ChevronDown, ChevronUp, Columns2, Rows2, X } from 'lucide-react'
 import { button, getTerminalTheme, fonts, colors, sizes } from './design'
 import type { TerminalEvent, TerminalRuntimeInfo, TerminalSnapshot } from './types'
@@ -119,6 +120,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const searchAddonRef = useRef<SearchAddon | null>(null)
+  const webLinksAddonRef = useRef<WebLinksAddon | null>(null)
   const resizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const resizeFrameRef = useRef<number | null>(null)
   const frameRef = useRef<TerminalFrame | null>(frame)
@@ -306,8 +308,14 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
 
         const fit = new FitAddon()
         const search = new SearchAddon()
+        const webLinks = new WebLinksAddon((event, uri) => {
+          event.preventDefault()
+          event.stopPropagation()
+          void window.takoyaki.window.openExternal(uri)
+        })
         term.loadAddon(fit)
         term.loadAddon(search)
+        term.loadAddon(webLinks)
 
         term.attachCustomKeyEventHandler((event) => {
           if (event.type !== 'keydown') return true
@@ -353,6 +361,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
         termRef.current = term
         fitRef.current = fit
         searchAddonRef.current = search
+        webLinksAddonRef.current = webLinks
 
         const mountNode = containerRef.current
         mountNode.style.width = '100%'
@@ -433,6 +442,7 @@ export function Terminal({ surfaceId, terminalId, frame, isFocused }: Props) {
       terminalEventCleanup?.()
       window.removeEventListener('takoyaki-theme-changed', onThemeChanged)
       searchAddonRef.current = null
+      webLinksAddonRef.current = null
       fitRef.current = null
       termRef.current?.dispose()
       termRef.current = null
