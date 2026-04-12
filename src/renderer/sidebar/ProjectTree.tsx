@@ -215,6 +215,7 @@ function ProjectTreeSection({
           key={task.id}
           task={task}
           projectAccent={projectAccent}
+          isFirst={taskIndex === 0}
           isLast={taskIndex === tasks.length - 1}
           activeId={activeId}
           surfaceStatuses={surfaceStatuses}
@@ -232,6 +233,7 @@ function ProjectTreeSection({
 function TaskRow({
   task,
   projectAccent,
+  isFirst,
   isLast,
   activeId,
   surfaceStatuses,
@@ -242,6 +244,7 @@ function TaskRow({
 }: {
   task: Workspace
   projectAccent: ProjectAccent
+  isFirst: boolean
   isLast: boolean
   activeId: string | null
   surfaceStatuses: Record<string, HookSurfaceStatus>
@@ -325,7 +328,15 @@ function TaskRow({
           flex: 1,
           minWidth: 0,
           padding: '8px 10px',
-          background: taskSelected ? projectAccent.taskWash : 'transparent',
+          marginTop: isFirst ? 6 : 4,
+          background: taskSelected ? projectAccent.activeWash : 'transparent',
+        }}
+        onMouseEnter={(event) => {
+          if (taskSelected) return
+          event.currentTarget.style.background = projectAccent.hoverWash
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.background = taskSelected ? projectAccent.activeWash : 'transparent'
         }}
       >
         <div className="mt-0.5 flex-shrink-0">
