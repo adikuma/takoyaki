@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
 
+## [0.1.2] - 2026-04-12
+
+### Added
+- Project identity accents in the sidebar with theme-aware ambient gradients
+- Conservative pane auto labels based on Claude state, terminal title, and working directory
+- Review navigation as a changed-file folder tree
+
+### Changed
+- Polished the review workspace with lighter header controls and cleaner diff gutters
+- Refined sidebar identity treatment to feel calmer and more scan-friendly in both themes
+
+### Fixed
+- Removed raw command capture from pane metadata so terminal input is not exposed for labeling
+- Refreshed release and contributor docs to match the shipped workspace-polish build
+
 ## [0.1.1] - 2026-04-12
 
 ### Added

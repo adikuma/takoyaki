@@ -6,12 +6,14 @@
 graph TB
     subgraph Renderer["Renderer (React 19)"]
         App[App.tsx]
-        Sidebar[Sidebar.tsx]
+        Sidebar[Sidebar.tsx + sidebar/*]
         Terminal[Terminal.tsx / xterm.js]
+        Review[Review.tsx + ReviewTree.tsx]
         Settings[Settings.tsx]
         Store[zustand store]
         App --- Sidebar
         App --- Terminal
+        App --- Review
         App --- Settings
         App --- Store
     end
@@ -94,7 +96,7 @@ sequenceDiagram
     Script->>Script: reads ~/.takoyaki/socket_addr
     Script->>Socket: TCP connect, JSON-RPC status.update
     Socket->>Main: onStatusUpdate(surfaceId, update)
-    Main->>Main: reduce activity + attention state
+    Main->>Main: reduce activity and attention state
     Main-->>UI: status:changed broadcast
     UI->>UI: sidebar shows activity or attention glyph
     UI->>UI: toast/sidebar update for the affected project
@@ -112,7 +114,8 @@ sequenceDiagram
     P->>PTY: terminal.write(id, data)
     PTY->>PTY: shell processes input
     PTY-->>P: onData (shell output)
-    P-->>X: term.write(data)
+    PTY-->>P: metadata updates for cwd and title
+    P-->>X: snapshot restore plus ordered terminal events
 ```
 
 ## Task / worktree model
@@ -120,14 +123,14 @@ sequenceDiagram
 ```mermaid
 graph TD
     P["Project: ai-platform<br/>branch: main<br/>kind: project"]
-    T1["Task: auth-refactor<br/>branch: task/auth-refactor<br/>kind: task"]
-    T2["Task: api-v2<br/>branch: task/api-v2<br/>kind: task"]
+    T1["Task: auth-refactor<br/>branch: feature/auth-refactor<br/>kind: task"]
+    T2["Task: api-v2<br/>branch: feat/api-v2<br/>kind: task"]
 
     P -->|parentProjectId| T1
     P -->|parentProjectId| T2
 
-    T1 -.-|worktree| W1[".worktrees/auth-refactor"]
-    T2 -.-|worktree| W2[".worktrees/api-v2"]
+    T1 -.-|worktree| W1["../ai-platform-auth-refactor"]
+    T2 -.-|worktree| W2["../ai-platform-api-v2"]
 ```
 
 ## Theme system
@@ -151,8 +154,8 @@ flowchart LR
 ```mermaid
 graph LR
     subgraph window.takoyaki
-        terminal["terminal<br/>create, write, resize,<br/>destroy, onData, onExit"]
-        workspace["workspace<br/>list, select, close, create,<br/>onChange, createTask, removeTask"]
+        terminal["terminal<br/>create, open, metadata,<br/>write, resize, destroy, onEvent"]
+        workspace["workspace<br/>list, select, close, create,<br/>onChange, createTask, removeTask,<br/>listBranches, setSurfaceFontSize"]
         surface["surface<br/>focus"]
         hooks["hooks<br/>install, test, diagnostics"]
         editor["editor<br/>open, preferences, availability"]
@@ -160,6 +163,19 @@ graph LR
         activity["activity<br/>get, onChange"]
         window["window<br/>minimize, maximize, close"]
     end
+```
+
+## Review navigation
+
+```mermaid
+graph TD
+    Snapshot["ReviewSnapshot.files"]
+    Tree["buildReviewTree(files)"]
+    LeftPane["ReviewTree.tsx<br/>folder tree"]
+    DiffPane["Review.tsx<br/>diff pane"]
+
+    Snapshot --> Tree --> LeftPane
+    LeftPane -->|select file| DiffPane
 ```
 
 ## Storage locations

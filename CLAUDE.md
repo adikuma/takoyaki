@@ -8,55 +8,59 @@ Source code for dependencies is available in `opensrc/` for deeper understanding
 
 See `opensrc/sources.json` for the list of available packages and their versions.
 
-Use this source code when you need to understand how a package works internally, not just its types/interface.
+Use this source code when you need to understand how a package works internally, not just its types or interface.
 
 ### Fetching Additional Source Code
 
 ```bash
-npx opensrc <package>           # npm package (e.g., npx opensrc zod)
-npx opensrc pypi:<package>      # Python package (e.g., npx opensrc pypi:requests)
-npx opensrc crates:<package>    # Rust crate (e.g., npx opensrc crates:serde)
-npx opensrc <owner>/<repo>      # GitHub repo (e.g., npx opensrc vercel/ai)
+npx opensrc <package>           # npm package
+npx opensrc pypi:<package>      # python package
+npx opensrc crates:<package>    # rust crate
+npx opensrc <owner>/<repo>      # github repo
 ```
 
 ## Directory Structure
 
-```
+```text
 src/
-├── main/               # node.js main process (source of truth)
-│   ├── terminal.ts     # node-pty wrapper, CWD tracking via OSC
-│   ├── workspace.ts    # project state, pane tree, session persistence
-│   ├── editor.ts       # windows editor launching and default editor preference
-│   ├── hooks.ts        # claude code hook installer (Stop, StopFailure, UserPromptSubmit)
-│   ├── rpc.ts          # JSON-RPC 2.0 handler for external tools
-│   └── socket-server.ts # TCP socket on 127.0.0.1:PORT
-├── preload/
-│   └── index.ts        # IPC bridge via contextBridge (window.takoyaki)
-└── renderer/
-    ├── App.tsx          # root layout, IPC listeners, toast
-    ├── Sidebar.tsx      # project list, smart collapse, theme toggle
-    ├── Terminal.tsx      # xterm.js component
-    ├── Settings.tsx     # hooks config, shortcuts reference
-    ├── Titlebar.tsx     # custom titlebar with window controls
-    ├── Tooltip.tsx      # custom tooltip, zero dependencies
-    ├── store.ts         # zustand store, all UI state
-    ├── design.ts        # design tokens (colors, fonts, sizes, buttons)
-    └── app.css          # CSS variables for dark/light themes, animations
+  main/                 # node.js main process and source of truth
+    terminal.ts         # node-pty wrapper, ordered terminal events, cwd and title tracking
+    workspace.ts        # project state, pane tree, session persistence
+    editor.ts           # windows editor launching and default editor preference
+    hooks.ts            # claude code hook installer, diagnostics, and repair flow
+    review.ts           # git-backed review snapshots and file patches
+    rpc.ts              # json-rpc 2.0 handler for external tools
+    socket-server.ts    # tcp socket on 127.0.0.1:port
+  preload/
+    index.ts            # ipc bridge via contextBridge as window.takoyaki
+  renderer/
+    App.tsx             # root layout, ipc listeners, terminal stage, toasts
+    Sidebar.tsx         # sidebar shell and controller wiring
+    sidebar/            # project tree, palette, modals, and sidebar hooks
+    Terminal.tsx        # xterm.js component and pane chrome
+    Review.tsx          # review shell and diff pane
+    ReviewTree.tsx      # changed-file folder tree
+    Settings.tsx        # hooks config and shortcuts reference
+    Titlebar.tsx        # custom titlebar with window controls
+    Tooltip.tsx         # custom tooltip, zero dependencies
+    store.ts            # zustand store and ui state
+    design.ts           # design tokens
+    app.css             # css variables for dark and light themes
 ```
 
 ## Common Commands
 
 ```bash
-npm run dev           # start electron in dev mode
-npm run build         # build for production
-npm run package:win   # build windows installer (output in release/)
-npm run test          # run unit tests
-npm run lint          # eslint check
-npm run lint:fix      # eslint auto-fix
-npm run format        # prettier format all source files
-npm run format:check  # prettier check (no write)
-npm run typecheck     # tsc --noEmit on both tsconfigs
-npm run check         # format + lint + typecheck + test (full gate)
+npm run dev
+npm run build
+npm run package:win
+npm run test
+npm run lint
+npm run lint:fix
+npm run format
+npm run format:check
+npm run typecheck
+npm run check
 ```
 
 ## Quality Gate
@@ -69,7 +73,7 @@ When editing source files, run the relevant checks before considering work done:
 2. `npm run lint:fix` to auto-fix lint issues
 3. `npm run test` to verify nothing broke
 
-Do not commit code that has lint errors. Warnings in test files (e.g. `any` in mocks) are acceptable.
+Do not commit code that has lint errors. Warnings in test files are acceptable.
 
 ## Code Conventions
 
@@ -77,12 +81,12 @@ Do not commit code that has lint errors. Warnings in test files (e.g. `any` in m
 - No underscore-prefixed variables or functions
 - Imports at top of file, never inline
 - camelCase for variables and functions, PascalCase for components
-- Use `npm` (not pnpm)
-- Single-line commit messages: `type: description` (feat, fix, chore, test, docs)
+- Use `npm` not `pnpm`
+- Single-line commit messages: `type: description`
 - Update `docs/CHANGELOG.md` for every release-facing change
-- Keep changelog entries short and versioned: `## [x.y.z] - YYYY-MM-DD`, then compact bullets under `Added`, `Changed`, or `Fixed`
-- After each meaningful implementation, update the local root `NOTES.md` with the date, decision, learning, and any important follow up
-- Keep `NOTES.md` gitignored and local only. It is our running implementation memory and should not be committed
+- Keep changelog entries short and versioned as `## [x.y.z] - YYYY-MM-DD`
+- After each meaningful implementation, update the local root `NOTES.md`
+- Keep `NOTES.md` gitignored and local only
 
 ## Design System Rules
 
@@ -94,41 +98,44 @@ style={{ color: colors.textPrimary }}
 style={{ background: colors.bgCard }}
 style={{ borderBottom: `1px solid ${colors.borderSubtle}` }}
 
-// wrong - will break in light mode
+// wrong
 className="text-stone-300"
 style={{ color: '#78716c' }}
 style={{ background: 'rgba(255,255,255,0.04)' }}
 ```
 
-**Icons**: `sizes.iconSm` (13px) for inline, `sizes.iconBase` (15px) for primary. Window controls stay at 10px.
+**Icons**: `sizes.iconSm` for inline, `sizes.iconBase` for primary. Window controls stay at 10px.
 
 **Fonts**: DM Sans bundled locally in `src/renderer/assets/fonts/`. Monospace via system fallback chain in `fonts.mono`.
 
-**Buttons**: Use `button.base`, `button.hover`, `button.active` tokens from `design.ts`. Apply via `Object.assign(e.currentTarget.style, button.hover)` on mouse events.
+**Buttons**: Use `button.base`, `button.hover`, and `button.active` tokens from `design.ts`.
 
 ## Key Architecture Decisions
 
-- **Surface ID vs Terminal ID**: each pane has a surfaceId (stable, used in hooks) and terminalId (internal, for node-pty). `TAKOYAKI_SURFACE_ID` env var is set in each PTY so hooks report back which pane triggered them.
-- **Status flow**: hook fires in Claude Code -> `takoyaki-notify.js` sends JSON-RPC `status.update` -> main process stores in map -> broadcasts to renderer -> sidebar shows glyph.
+- **Surface id vs terminal id**: each pane has a `surfaceId` used in hooks and focus state, and a `terminalId` used internally for node-pty.
+- **Status flow**: Claude hook events go through `takoyaki-notify.js`, hit `status.update`, and are reduced into activity and attention state before the renderer updates.
+- **Pane labels**: pane identity comes from Claude state, terminal title, and cwd heuristics. Do not infer identity from raw submitted terminal input.
 - **Editor flow**: projects and tasks open directly in the configured editor from the sidebar. The default editor is stored under `~/.takoyaki/preferences.json`.
-- **Activity tracking**: keyboard input timestamps per workspace. Sidebar collapses projects with no input for 1 hour and no agent activity.
-- **Theming**: CSS variables on `:root` (dark default), `[data-theme="light"]` override. Terminal theme is separate (xterm doesn't support CSS vars) - `getTerminalTheme(mode)` returns the right object.
+- **Activity tracking**: keyboard input timestamps per workspace. Sidebar can use that to sort and collapse quieter projects.
+- **Theming**: CSS variables on `:root` drive the app theme, while `getTerminalTheme(mode)` handles xterm separately.
 
 ## Storage Locations
 
-- `~/.takoyaki/state.json` - workspace layout persistence
-- `~/.takoyaki/bin/takoyaki-notify.js` - hook notification script
-- `~/.takoyaki/socket_addr` - TCP socket address for external tools
-- `~/.claude/settings.json` - hook registration (modified by installer)
+- `~/.takoyaki/state.json` for workspace layout persistence
+- `~/.takoyaki/preferences.json` for the default editor and pinned projects
+- `~/.takoyaki/bin/takoyaki-notify.js` for the hook notification script
+- `~/.takoyaki/socket_addr` for the tcp socket address
+- `~/.claude/settings.json` for hook registration
+- `project/.git/takoyaki-tasks.json` for managed task metadata
 
 ## Testing
 
-Tests are in `src/__tests__/`. Run with `npm run test`. Tests cover workspace management, RPC protocol, worktree recovery, sidebar logic, and hook integration. Use `vitest` with Node environment.
+Tests live in `src/__tests__/`. Run them with `npm run test`. Coverage focuses on workspace management, rpc, worktree recovery, review flows, sidebar logic, hooks, and terminal behavior through vitest in a node environment.
 
 ## Workflow for New Features
 
 1. Check if the feature touches main process, renderer, or both
-2. For IPC: add handler in `main/index.ts`, bridge in `preload/index.ts`, type in `renderer/types.ts`
-3. For UI: use design tokens from `design.ts`, never hardcode colors
-4. For state: add to zustand store in `store.ts`, keep mutations through `window.takoyaki` IPC
+2. For ipc, add the handler in `main/index.ts`, bridge in `preload/index.ts`, and matching renderer types
+3. For ui, use design tokens from `design.ts` and shared pieces in `renderer/sidebar/` when the work belongs in the sidebar
+4. For state, keep mutations flowing through `window.takoyaki` and store snapshots in `store.ts`
 5. Test both dark and light modes

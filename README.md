@@ -10,9 +10,12 @@ It brings multiple projects, split panes, git worktree tasks, Claude Code hooks,
 - **Split panes**
 - **Git worktree tasks**
 - **Review mode**
+- **Review file tree navigation**
 - **Claude Code hooks**
 - **Editor integration**
 - **Per-pane terminal zoom**
+- **Pane auto labels**
+- **Project accents**
 - **Dark and light themes**
 - **Session persistence**
 - **Socket RPC**
