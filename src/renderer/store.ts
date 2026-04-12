@@ -22,6 +22,7 @@ interface ToastState {
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
+// normalizes unknown review errors into one renderer friendly message
 function getReviewErrorDetail(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to load review.'
 }

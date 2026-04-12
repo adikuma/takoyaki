@@ -15,6 +15,7 @@ export class SocketServer {
 
   constructor(private rpcHandler: RpcHandler) {}
 
+  // start the localhost rpc socket on a random port and publish the address file
   async start(): Promise<number> {
     return new Promise((resolve, reject) => {
       this.server = net.createServer((conn) => this.handleConnection(conn))
@@ -30,6 +31,7 @@ export class SocketServer {
     })
   }
 
+  // stop the socket and clean up the published address file
   stop(): void {
     if (this.healthTimer) {
       clearInterval(this.healthTimer)
@@ -45,6 +47,7 @@ export class SocketServer {
   }
 
   // recreate socket_addr if missing (called by repair button and health check)
+  // recreate the address file if another process deleted it while takoyaki is running
   ensureAddrFile(): void {
     if (!this.port) return
     const file = path.join(os.homedir(), '.takoyaki', 'socket_addr')
@@ -52,10 +55,12 @@ export class SocketServer {
   }
 
   // periodic check that socket_addr exists, self-heals if deleted
+  // periodically repair the address file so hook delivery stays discoverable
   startHealthCheck(): void {
     this.healthTimer = setInterval(() => this.ensureAddrFile(), 30_000)
   }
 
+  // read newline-delimited requests from one connection and answer each in order
   private handleConnection(conn: net.Socket): void {
     let buffer = ''
 
@@ -77,6 +82,7 @@ export class SocketServer {
     })
   }
 
+  // accept json rpc first and fall back to the older text protocol when parsing fails
   private processLine(line: string): string {
     // try json-rpc first
     try {
@@ -90,6 +96,7 @@ export class SocketServer {
     return this.rpcHandler.handleV1(line)
   }
 
+  // publish the current localhost port for hook scripts and cli clients
   private writeAddrFile(): void {
     try {
       const dir = path.join(os.homedir(), '.takoyaki')
@@ -100,6 +107,7 @@ export class SocketServer {
     }
   }
 
+  // remove the socket address file when the server shuts down
   private cleanAddrFile(): void {
     try {
       const file = path.join(os.homedir(), '.takoyaki', 'socket_addr')

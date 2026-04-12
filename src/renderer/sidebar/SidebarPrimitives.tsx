@@ -4,18 +4,14 @@ import { colors, sizes } from '../design'
 import { Tooltip } from '../Tooltip'
 import { getClaudeAttentionLabel, type ClaudeWorkspaceStatus } from '../../shared/claude-status'
 
-// folder icon that lights up amber when the project is selected
-export function FolderIcon({ active }: { active?: boolean }) {
+// keep the folder icon styling consistent anywhere the sidebar needs a project marker
+export function FolderIcon({ color }: { color?: string }) {
   return (
-    <FolderClosed
-      size={sizes.iconBase}
-      strokeWidth={1.8}
-      color={active ? colors.accentSoft : colors.textMuted}
-      style={{ flexShrink: 0 }}
-    />
+    <FolderClosed size={sizes.iconBase} strokeWidth={1.8} color={color || colors.textMuted} style={{ flexShrink: 0 }} />
   )
 }
 
+// reuse one search glyph so the filter input matches the rest of the sidebar chrome
 export function SearchIcon() {
   return <Search size={sizes.iconSm} strokeWidth={2} style={{ flexShrink: 0 }} />
 }
@@ -36,6 +32,7 @@ function AttentionIcon() {
   return <CircleAlert size={sizes.iconSm} strokeWidth={2} color={colors.accent} style={{ flexShrink: 0 }} />
 }
 
+// group hover actions without adding a visible container chrome around them
 export function RowActionCluster({ children }: { children: ReactNode }) {
   return (
     <div
@@ -52,6 +49,7 @@ export function RowActionCluster({ children }: { children: ReactNode }) {
   )
 }
 
+// share one compact button treatment for row level actions and menus
 export function RowActionButton({
   label,
   active = false,
@@ -118,10 +116,12 @@ export interface RowMenuItem {
   hint?: string
 }
 
+// open a lightweight action menu that closes on outside press or escape
 export function RowActionMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
+  // close the menu when focus moves outside the menu root
   useEffect(() => {
     if (!open) return
 
@@ -216,6 +216,7 @@ export function RowActionMenu({ label, items }: { label: string; items: RowMenuI
   )
 }
 
+// render the current claude workspace status as the sidebar glyph and optional tooltip
 export function StatusGlyph({ status }: { status: ClaudeWorkspaceStatus | null }) {
   if (!status) return null
 

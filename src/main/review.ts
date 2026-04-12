@@ -52,10 +52,12 @@ interface GitStatusEntry {
   status: ReviewFileStatus
 }
 
+// normalize git paths so renderer and review logic can compare them consistently across platforms
 function normalizePath(input: string): string {
   return input.replace(/\\/g, '/')
 }
 
+// compare working directories through real paths so scoped reviews survive symlinks
 function resolveComparablePath(input: string): string {
   try {
     return fs.realpathSync.native(input)
@@ -64,6 +66,7 @@ function resolveComparablePath(input: string): string {
   }
 }
 
+// run a git command with shared timeout and error normalization for review flows
 function runGit(cwd: string, args: string[], encoding: BufferEncoding = 'utf8'): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -86,11 +89,13 @@ function runGit(cwd: string, args: string[], encoding: BufferEncoding = 'utf8'):
   })
 }
 
+// keep only files that live inside the current workspace review scope
 function pathInScope(filePath: string, scopePath: string | null): boolean {
   if (!scopePath) return true
   return filePath === scopePath || filePath.startsWith(`${scopePath}/`)
 }
 
+// map porcelain status codes into the smaller review status enum
 function classifyStatus(code: string): ReviewFileStatus {
   if (code === '??') return 'untracked'
   if (code.includes('R')) return 'renamed'
@@ -101,6 +106,7 @@ function classifyStatus(code: string): ReviewFileStatus {
   return 'modified'
 }
 
+// parse git porcelain output into structured review file entries
 function parseStatus(output: string): GitStatusEntry[] {
   const entries: GitStatusEntry[] = []
   const tokens = output.split('\0').filter(Boolean)
@@ -129,10 +135,12 @@ function parseStatus(output: string): GitStatusEntry[] {
   return entries
 }
 
+// keep review file ordering stable between refreshes
 function compareReviewFiles(left: GitStatusEntry, right: GitStatusEntry): number {
   return left.path.localeCompare(right.path) || (left.previousPath || '').localeCompare(right.previousPath || '')
 }
 
+// limit project reviews to the surviving workspace cwd when the user is inside a subdirectory
 function resolveScopePath(workspace: Workspace, repoRoot: string): string | null {
   if (workspace.kind !== 'project') return null
   const comparableRoot = resolveComparablePath(repoRoot)
@@ -143,10 +151,12 @@ function resolveScopePath(workspace: Workspace, repoRoot: string): string | null
   return relativePath
 }
 
+// convert a repo relative path back into an absolute filesystem path
 function toAbsolutePath(repoRoot: string, relativePath: string): string {
   return path.join(repoRoot, ...relativePath.split('/'))
 }
 
+// sniff binary files quickly so review does not try to render unreadable data as text
 function isBinaryContent(buffer: Buffer): boolean {
   const limit = Math.min(buffer.length, BINARY_SNIFF_BYTES)
   for (let index = 0; index < limit; index += 1) {
@@ -155,6 +165,7 @@ function isBinaryContent(buffer: Buffer): boolean {
   return false
 }
 
+// synthesize a git-style patch for untracked files so they can still be reviewed
 function buildAddedFilePatch(filePath: string, content: string): string {
   const normalizedContent = content.replace(/\r\n/g, '\n')
   const lines = normalizedContent.length ? normalizedContent.split('\n') : []
@@ -177,6 +188,7 @@ function buildAddedFilePatch(filePath: string, content: string): string {
 }
 
 export class ReviewService {
+  // resolve the git root and optional review scope for one workspace
   private async resolveScope(workspace: Workspace): Promise<ReviewScope | null> {
     const rootCandidate = workspace.projectRoot || workspace.workingDirectory
     if (!rootCandidate) return null
@@ -190,6 +202,7 @@ export class ReviewService {
     }
   }
 
+  // list changed files and apply workspace scoping before the renderer sees them
   private async listStatusEntries(workspace: Workspace, scope: ReviewScope): Promise<GitStatusEntry[]> {
     const output = await runGit(scope.repoRoot, ['status', '--porcelain=v1', '-z', '-uall'])
     return parseStatus(output)
@@ -199,6 +212,7 @@ export class ReviewService {
       .sort(compareReviewFiles)
   }
 
+  // build the review sidebar snapshot for the current workspace selection
   async getSnapshot(workspace: Workspace): Promise<ReviewSnapshot> {
     const scope = await this.resolveScope(workspace)
     if (!scope) {
@@ -233,6 +247,7 @@ export class ReviewService {
     }
   }
 
+  // load one file patch and fall back to binary or oversized placeholders when needed
   async getFilePatch(workspace: Workspace, filePath: string): Promise<ReviewPatch> {
     const scope = await this.resolveScope(workspace)
     if (!scope) {

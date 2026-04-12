@@ -6,6 +6,7 @@ interface CloseProjectModalProps {
   onConfirm: (projectId: string) => void
 }
 
+// confirm closing a project before the workspace tree and its terminals are torn down
 export function CloseProjectModal({ project, onClose, onConfirm }: CloseProjectModalProps) {
   if (!project) return null
 

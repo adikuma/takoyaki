@@ -19,6 +19,7 @@ export interface TerminalRestorePaddingInspection {
   leadingVisibleLines: string[]
 }
 
+// estimate how much renderer work a terminal event adds to the live replay queue
 export function terminalEventPayloadBytes(event: TerminalEvent): number {
   switch (event.type) {
     case 'output':
@@ -30,6 +31,7 @@ export function terminalEventPayloadBytes(event: TerminalEvent): number {
   }
 }
 
+// switch to fast forward recovery only when backlog grows well past normal interactive usage
 export function shouldFastForwardTerminalBacklog(backlog: TerminalBacklogCounter): boolean {
   return (
     backlog.queuedBytes > TERMINAL_FAST_FORWARD_MAX_QUEUED_BYTES ||
@@ -37,10 +39,12 @@ export function shouldFastForwardTerminalBacklog(backlog: TerminalBacklogCounter
   )
 }
 
+// drop already applied events after a snapshot jump so replay resumes from the latest boundary
 export function filterTerminalEventsAfterEventId(events: TerminalEvent[], lastEventId: number): TerminalEvent[] {
   return events.filter((event) => event.eventId > lastEventId)
 }
 
+// collapse restored blank shell padding when the saved screen is only empty prompt space
 export function shouldCollapseRestoredShellPadding(inspection: TerminalRestorePaddingInspection): boolean {
   if (inspection.bufferType !== 'normal') return false
   if (inspection.baseY !== 0 || inspection.viewportY !== 0) return false

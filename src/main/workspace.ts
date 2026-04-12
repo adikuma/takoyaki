@@ -11,6 +11,7 @@ import * as os from 'os'
 import { TerminalManager } from './terminal'
 import { DEFAULT_TERMINAL_FONT_SIZE, clampTerminalFontSize } from '../shared/terminal-zoom'
 
+// ask git for the current branch so new or restored projects can show branch context
 function resolveGitBranch(cwd: string): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(
@@ -82,6 +83,7 @@ type WorkspaceCycleDirection = 'next' | 'prev'
 const STATE_FILE = path.join(os.homedir(), '.takoyaki', 'state.json')
 const LEGACY_TASK_ROOT = path.join(os.homedir(), '.takoyaki', 'worktrees')
 
+// normalize paths before comparing roots and recovered worktree locations
 function normalizePath(input: string): string {
   return input.replace(/\\/g, '/')
 }
@@ -96,6 +98,7 @@ export class WorkspaceManager extends EventEmitter {
     this.terminals = terminals
   }
 
+  // create a new project workspace with a single terminal leaf and optionally hydrate git state
   create(title?: string, cwd?: string, projectRoot?: string, gitEnabled = false): Workspace {
     const id = randomUUID()
     const surfaceId = randomUUID()
@@ -148,10 +151,12 @@ export class WorkspaceManager extends EventEmitter {
     return Array.from(this.state.values()).map((entry) => this.serializeWorkspace(entry))
   }
 
+  // keep only top-level project workspaces for sidebar ordering and fallback selection
   listProjects(): Workspace[] {
     return this.list().filter((workspace) => workspace.kind === 'project')
   }
 
+  // find an existing project by normalized root so direct-opened worktrees can reattach to it
   findProjectByRoot(projectRoot: string): Workspace | null {
     const normalizedRoot = normalizePath(projectRoot)
     for (const entry of this.state.values()) {
@@ -174,6 +179,7 @@ export class WorkspaceManager extends EventEmitter {
     return entry ? this.serializeWorkspace(entry) : null
   }
 
+  // map a surface back to its owning workspace for focus and hook updates
   workspaceIdForSurface(surfaceId: string): string | null {
     for (const [workspaceId, entry] of this.state.entries()) {
       if (this.collectSurfaceIds(entry.paneTree).includes(surfaceId)) return workspaceId
@@ -232,6 +238,7 @@ export class WorkspaceManager extends EventEmitter {
     return this.serializeWorkspace(entry)
   }
 
+  // create or update a task workspace under one parent project
   createTask(
     parentProjectId: string,
     title: string,
@@ -284,6 +291,7 @@ export class WorkspaceManager extends EventEmitter {
     return this.serializeWorkspace({ workspace, paneTree })
   }
 
+  // reconcile recovered task worktrees into existing task entries or create them on demand
   syncRecoveredTasks(parentProjectId: string, tasks: RecoveredTaskWorkspace[]): Workspace[] {
     const parent = this.state.get(parentProjectId)
     if (!parent || parent.workspace.kind !== 'project') return []
@@ -361,6 +369,7 @@ export class WorkspaceManager extends EventEmitter {
     return recovered
   }
 
+  // switch the active workspace without changing pane state
   select(id: string): boolean {
     if (!this.state.has(id)) return false
     this.activeWorkspaceId = id
@@ -368,6 +377,7 @@ export class WorkspaceManager extends EventEmitter {
     return true
   }
 
+  // move to the next or previous visible workspace in sidebar order
   cycleWorkspace(direction: WorkspaceCycleDirection): string | null {
     const orderedIds = this.getVisibleWorkspaceOrder()
     if (orderedIds.length <= 1) return null
@@ -388,6 +398,7 @@ export class WorkspaceManager extends EventEmitter {
     return nextId
   }
 
+  // close a workspace and any child tasks if the closed entry is a project
   close(id: string): boolean {
     const entry = this.state.get(id)
     if (!entry) return false
@@ -430,12 +441,14 @@ export class WorkspaceManager extends EventEmitter {
     return true
   }
 
+  // return the pane tree for one workspace or the active workspace
   getTree(workspaceId?: string): PaneTree | null {
     const id = workspaceId || this.activeWorkspaceId
     if (!id) return null
     return this.state.get(id)?.paneTree || null
   }
 
+  // lazily create the first pane for empty workspaces restored without a tree
   createPane(workspaceId: string): boolean {
     const entry = this.state.get(workspaceId)
     if (!entry || entry.paneTree) return false
@@ -454,12 +467,14 @@ export class WorkspaceManager extends EventEmitter {
     return true
   }
 
+  // split the currently focused pane in the active workspace
   splitFocused(direction: 'horizontal' | 'vertical'): boolean {
     const ws = this.activeWorkspaceId ? this.state.get(this.activeWorkspaceId) : null
     if (!ws || !ws.workspace.focusedSurfaceId) return false
     return this.splitSurface(ws.workspace.focusedSurfaceId, direction)
   }
 
+  // split one pane and seed the new sibling from the focused pane cwd and font size
   splitSurface(surfaceId: string, direction: 'horizontal' | 'vertical'): boolean {
     for (const entry of this.state.values()) {
       if (!entry.paneTree || !this.collectSurfaceIds(entry.paneTree).includes(surfaceId)) continue
@@ -479,12 +494,14 @@ export class WorkspaceManager extends EventEmitter {
     return false
   }
 
+  // close the currently focused pane in the active workspace
   closeFocused(): boolean {
     const ws = this.activeWorkspaceId ? this.state.get(this.activeWorkspaceId) : null
     if (!ws || !ws.workspace.focusedSurfaceId) return false
     return this.closeSurface(ws.workspace.focusedSurfaceId)
   }
 
+  // persist a pane-local font size back into the workspace tree
   setSurfaceFontSize(surfaceId: string, fontSize: number): boolean {
     const nextFontSize = clampTerminalFontSize(fontSize)
     for (const entry of this.state.values()) {
@@ -497,6 +514,7 @@ export class WorkspaceManager extends EventEmitter {
     return false
   }
 
+  // remove one pane and keep focus and cwd anchored to the surviving pane when possible
   closeSurface(surfaceId: string): boolean {
     for (const entry of this.state.values()) {
       if (!entry.paneTree || !this.collectSurfaceIds(entry.paneTree).includes(surfaceId)) continue
@@ -530,6 +548,7 @@ export class WorkspaceManager extends EventEmitter {
     return false
   }
 
+  // update the focused surface without changing workspace selection
   focusSurface(surfaceId: string): boolean {
     for (const entry of this.state.values()) {
       const ids = this.collectSurfaceIds(entry.paneTree)
@@ -542,6 +561,7 @@ export class WorkspaceManager extends EventEmitter {
     return false
   }
 
+  // move focus between sibling panes using the current pane tree layout
   moveFocus(direction: FocusDirection): boolean {
     const ws = this.activeWorkspaceId ? this.state.get(this.activeWorkspaceId) : null
     const focusedSurfaceId = ws?.workspace.focusedSurfaceId
@@ -561,6 +581,7 @@ export class WorkspaceManager extends EventEmitter {
     return true
   }
 
+  // look up the owning workspace for one terminal id
   workspaceForTerminal(terminalId: string): string | null {
     for (const [workspaceId, entry] of this.state.entries()) {
       if (this.collectTerminalIds(entry.paneTree).includes(terminalId)) return workspaceId
@@ -568,12 +589,14 @@ export class WorkspaceManager extends EventEmitter {
     return null
   }
 
+  // collect the current surface ids for one workspace
   surfacesForWorkspace(workspaceId: string): string[] {
     const ws = this.state.get(workspaceId)
     if (!ws) return []
     return this.collectSurfaceIds(ws.paneTree)
   }
 
+  // expose the focused pane cwd so git promotion and review can follow the active pane
   focusedCwd(workspaceId?: string): string | null {
     const id = workspaceId || this.activeWorkspaceId
     if (!id) return null
@@ -584,6 +607,7 @@ export class WorkspaceManager extends EventEmitter {
     return terminalId ? this.terminals.getCwd(terminalId) : entry.workspace.workingDirectory
   }
 
+  // capture a workspace in the persisted shape without live terminal ids
   snapshotWorkspace(id: string): SavedWorkspaceState | null {
     const entry = this.state.get(id)
     if (!entry) return null
@@ -602,6 +626,7 @@ export class WorkspaceManager extends EventEmitter {
     }
   }
 
+  // recreate a saved workspace by restoring new terminal ids into the saved pane tree
   restoreWorkspace(snapshot: SavedWorkspaceState): Workspace | null {
     const paneTree = this.restoreTerminalIds(snapshot.paneTree, snapshot.workingDirectory)
     const surfaceIds = this.collectSurfaceIds(paneTree)
@@ -633,6 +658,7 @@ export class WorkspaceManager extends EventEmitter {
   }
 
   // persistence: save layout to disk
+  // persistence: save layout to disk
   save(): void {
     try {
       const dir = path.dirname(STATE_FILE)
@@ -661,6 +687,7 @@ export class WorkspaceManager extends EventEmitter {
     }
   }
 
+  // persistence: restore layout from disk (creates new ptys)
   // persistence: restore layout from disk (creates new ptys)
   load(): void {
     try {
@@ -730,10 +757,12 @@ export class WorkspaceManager extends EventEmitter {
     }
   }
 
+  // emit one shared change event after state mutations
   private emitChange(): void {
     this.emit('change')
   }
 
+  // add derived pane metadata the renderer needs without leaking the mutable state entry
   private serializeWorkspace(entry: WorkspaceState): Workspace {
     const surfaceIds = this.collectSurfaceIds(entry.paneTree)
     return {

@@ -1,6 +1,7 @@
-import { useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ArrowLeft, Maximize2, Minimize2, RefreshCcw, X } from 'lucide-react'
-import { button, colors, fonts, sizes } from './design'
+import { button, colors, fonts } from './design'
+import { ReviewTree } from './ReviewTree'
 import { useStore } from './store'
 import { Tooltip } from './Tooltip'
 import type { ReviewFile, ReviewPatch, ReviewFileStatus, Workspace } from './types'
@@ -17,6 +18,7 @@ interface PatchRow {
   newLine: number | null
 }
 
+// keeps the diff header status marker consistent with git style change letters
 function getStatusLabel(status: ReviewFileStatus): string {
   if (status === 'modified') return 'M'
   if (status === 'added' || status === 'untracked') return 'A'
@@ -26,6 +28,7 @@ function getStatusLabel(status: ReviewFileStatus): string {
   return 'T'
 }
 
+// maps review file states to the existing diff color system
 function getStatusColor(status: ReviewFileStatus): string {
   if (status === 'added' || status === 'untracked') return colors.diffAddText
   if (status === 'deleted') return colors.diffDelText
@@ -33,6 +36,7 @@ function getStatusColor(status: ReviewFileStatus): string {
   return colors.textSecondary
 }
 
+// picks the row treatment for each diff row type
 function getRowStyles(kind: PatchRow['kind']): { background: string; color: string; boxShadow: string } {
   if (kind === 'add') {
     return { background: colors.diffAddBg, color: colors.diffAddText, boxShadow: 'none' }
@@ -53,6 +57,7 @@ function getRowStyles(kind: PatchRow['kind']): { background: string; color: stri
   return { background: 'transparent', color: colors.textSecondary, boxShadow: 'none' }
 }
 
+// converts a unified diff string into renderable rows with tracked line numbers
 function parsePatchRows(patch: string): PatchRow[] {
   const rawLines = patch.split(/\r?\n/)
   if (rawLines[rawLines.length - 1] === '') rawLines.pop()
@@ -95,19 +100,20 @@ function parsePatchRows(patch: string): PatchRow[] {
   return rows
 }
 
+// renders a bare icon action for the review header controls
 function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <Tooltip content={label} side="bottom">
       <button
         onClick={onClick}
-        className="takoyaki-btn flex h-8 w-8 items-center justify-center rounded-md"
-        style={{ ...button.base, color: colors.textSecondary }}
-        onMouseEnter={(event) =>
-          Object.assign(event.currentTarget.style, { ...button.hover, color: colors.textPrimary })
-        }
-        onMouseLeave={(event) =>
-          Object.assign(event.currentTarget.style, { ...button.base, color: colors.textSecondary })
-        }
+        className="flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-[120ms]"
+        style={{ background: 'transparent', border: 'none', color: colors.textSecondary }}
+        onMouseEnter={(event) => {
+          event.currentTarget.style.color = colors.textPrimary
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.color = colors.textSecondary
+        }}
         aria-label={label}
       >
         {children}
@@ -116,73 +122,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
   )
 }
 
-function FileList({
-  files,
-  selectedFilePath,
-  onSelect,
-}: {
-  files: ReviewFile[]
-  selectedFilePath: string | null
-  onSelect: (path: string) => void
-}) {
-  return (
-    <div className="flex h-full flex-col overflow-hidden" style={{ borderRight: `1px solid ${colors.separator}` }}>
-      <div
-        className="shrink-0 px-4 py-3 text-[10px] font-semibold uppercase"
-        style={{ color: colors.textMuted, letterSpacing: '0.08em', borderBottom: `1px solid ${colors.borderSubtle}` }}
-      >
-        Changed Files
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {files.map((file) => {
-          const active = file.path === selectedFilePath
-          const statusColor = getStatusColor(file.status)
-          return (
-            <button
-              key={file.path}
-              onClick={() => onSelect(file.path)}
-              className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors duration-[120ms]"
-              style={{
-                background: active ? colors.bgInput : 'transparent',
-                borderBottom: `1px solid ${colors.borderSubtle}`,
-              }}
-              onMouseEnter={(event) => {
-                if (!active) event.currentTarget.style.background = colors.bgCard
-              }}
-              onMouseLeave={(event) => {
-                if (!active) event.currentTarget.style.background = 'transparent'
-              }}
-            >
-              <span
-                className="mt-0.5 shrink-0 text-[11px] font-semibold"
-                style={{ color: statusColor, width: 14, textAlign: 'center' }}
-              >
-                {getStatusLabel(file.status)}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span
-                  className="block truncate text-[12px]"
-                  style={{ color: colors.textPrimary, fontFamily: fonts.mono }}
-                >
-                  {file.path}
-                </span>
-                {file.previousPath && (
-                  <span
-                    className="mt-1 block truncate text-[10px]"
-                    style={{ color: colors.textGhost, fontFamily: fonts.mono }}
-                  >
-                    from {file.previousPath}
-                  </span>
-                )}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
+// shows empty and loading states inside the diff panel without changing the overall layout
 function DiffPlaceholder({
   title,
   detail,
@@ -221,11 +161,17 @@ function DiffPlaceholder({
   )
 }
 
+// renders the selected file diff and adapts the line gutters to the diff shape
 function DiffPane({ file, patch, loading }: { file: ReviewFile | null; patch: ReviewPatch | null; loading: boolean }) {
+  // parses the current patch once so the diff grid can render line numbers and row styles
   const rows = useMemo(() => {
     if (!patch || patch.renderMode !== 'text') return []
     return parsePatchRows(patch.patch)
   }, [patch])
+  const showOldLineNumbers = rows.some((row) => row.oldLine !== null)
+  const showNewLineNumbers = rows.some((row) => row.newLine !== null)
+  const gridTemplateColumns =
+    showOldLineNumbers && showNewLineNumbers ? '56px 56px minmax(0, 1fr)' : '56px minmax(0, 1fr)'
 
   if (!file) {
     return (
@@ -285,36 +231,52 @@ function DiffPane({ file, patch, loading }: { file: ReviewFile | null; patch: Re
         <div style={{ minWidth: '100%', width: 'max-content' }}>
           {rows.map((row, index) => {
             const rowStyle = getRowStyles(row.kind)
+            const singleLineNumber = showOldLineNumbers ? row.oldLine : row.newLine
             return (
               <div
                 key={`${index}-${row.content}`}
                 className="grid"
                 style={{
-                  gridTemplateColumns: '56px 56px auto',
+                  gridTemplateColumns,
                   background: rowStyle.background,
                   boxShadow: rowStyle.boxShadow,
                 }}
               >
-                <div
-                  className="px-3 py-1 text-right text-[10px]"
-                  style={{
-                    color: colors.textGhost,
-                    fontFamily: fonts.mono,
-                    borderRight: `1px solid ${colors.borderSubtle}`,
-                  }}
-                >
-                  {row.oldLine ?? ''}
-                </div>
-                <div
-                  className="px-3 py-1 text-right text-[10px]"
-                  style={{
-                    color: colors.textGhost,
-                    fontFamily: fonts.mono,
-                    borderRight: `1px solid ${colors.borderSubtle}`,
-                  }}
-                >
-                  {row.newLine ?? ''}
-                </div>
+                {showOldLineNumbers && showNewLineNumbers ? (
+                  <>
+                    <div
+                      className="px-3 py-1 text-right text-[10px]"
+                      style={{
+                        color: colors.textGhost,
+                        fontFamily: fonts.mono,
+                        borderRight: `1px solid ${colors.borderSubtle}`,
+                      }}
+                    >
+                      {row.oldLine ?? ''}
+                    </div>
+                    <div
+                      className="px-3 py-1 text-right text-[10px]"
+                      style={{
+                        color: colors.textGhost,
+                        fontFamily: fonts.mono,
+                        borderRight: `1px solid ${colors.borderSubtle}`,
+                      }}
+                    >
+                      {row.newLine ?? ''}
+                    </div>
+                  </>
+                ) : (
+                  <div
+                    className="px-3 py-1 text-right text-[10px]"
+                    style={{
+                      color: colors.textGhost,
+                      fontFamily: fonts.mono,
+                      borderRight: `1px solid ${colors.borderSubtle}`,
+                    }}
+                  >
+                    {singleLineNumber ?? ''}
+                  </div>
+                )}
                 <div
                   className="px-3 py-1 pr-6 text-[11px]"
                   style={{ color: rowStyle.color, fontFamily: fonts.mono, whiteSpace: 'pre' }}
@@ -324,21 +286,33 @@ function DiffPane({ file, patch, loading }: { file: ReviewFile | null; patch: Re
               </div>
             )
           })}
-          <div className="grid" style={{ gridTemplateColumns: '56px 56px auto' }}>
-            <div
-              style={{
-                height: 1,
-                borderTop: `1px solid ${colors.borderSubtle}`,
-                borderRight: `1px solid ${colors.borderSubtle}`,
-              }}
-            />
-            <div
-              style={{
-                height: 1,
-                borderTop: `1px solid ${colors.borderSubtle}`,
-                borderRight: `1px solid ${colors.borderSubtle}`,
-              }}
-            />
+          <div className="grid" style={{ gridTemplateColumns }}>
+            {showOldLineNumbers && showNewLineNumbers ? (
+              <>
+                <div
+                  style={{
+                    height: 1,
+                    borderTop: `1px solid ${colors.borderSubtle}`,
+                    borderRight: `1px solid ${colors.borderSubtle}`,
+                  }}
+                />
+                <div
+                  style={{
+                    height: 1,
+                    borderTop: `1px solid ${colors.borderSubtle}`,
+                    borderRight: `1px solid ${colors.borderSubtle}`,
+                  }}
+                />
+              </>
+            ) : (
+              <div
+                style={{
+                  height: 1,
+                  borderTop: `1px solid ${colors.borderSubtle}`,
+                  borderRight: `1px solid ${colors.borderSubtle}`,
+                }}
+              />
+            )}
             <div style={{ height: 1, borderTop: `1px solid ${colors.borderSubtle}` }} />
           </div>
         </div>
@@ -347,6 +321,7 @@ function DiffPane({ file, patch, loading }: { file: ReviewFile | null; patch: Re
   )
 }
 
+// owns the review workspace shell and coordinates tree selection with the diff pane
 export function Review({ workspace, narrow = false }: ReviewProps) {
   const reviewWorkspaceId = useStore((state) => state.reviewWorkspaceId)
   const selectedReviewFilePath = useStore((state) => state.selectedReviewFilePath)
@@ -360,6 +335,7 @@ export function Review({ workspace, narrow = false }: ReviewProps) {
   const refreshReview = useStore((state) => state.refreshReview)
   const selectReviewFile = useStore((state) => state.selectReviewFile)
   const toggleReviewFocusMode = useStore((state) => state.toggleReviewFocusMode)
+  const [showTreeOnNarrow, setShowTreeOnNarrow] = useState(narrow)
 
   const snapshot = (reviewWorkspaceId && reviewSnapshots[reviewWorkspaceId]) || null
   const selectedFile = snapshot?.files.find((file) => file.path === selectedReviewFilePath) || null
@@ -367,20 +343,25 @@ export function Review({ workspace, narrow = false }: ReviewProps) {
     reviewWorkspaceId && selectedReviewFilePath
       ? reviewPatches[reviewWorkspaceId]?.[selectedReviewFilePath] || null
       : null
-  const showFileList = !narrow || !selectedFile
+  const showFileList = !narrow || showTreeOnNarrow || !selectedFile
+
+  // resets narrow mode to the tree whenever the layout or reviewed workspace changes
+  useEffect(() => {
+    if (narrow) setShowTreeOnNarrow(true)
+  }, [narrow, reviewWorkspaceId])
 
   return (
     <div className="flex h-full flex-col" style={{ background: colors.bg }}>
       <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${colors.separator}` }}>
         <div className="flex items-center gap-2">
-          {narrow && selectedFile && (
+          {narrow && selectedFile && !showTreeOnNarrow && (
             <IconButton
-              label="Back to files"
+              label="Back to tree"
               onClick={() => {
-                useStore.setState({ selectedReviewFilePath: null })
+                setShowTreeOnNarrow(true)
               }}
             >
-              <ArrowLeft size={sizes.iconBase} strokeWidth={1.8} />
+              <ArrowLeft size={13} strokeWidth={1.9} />
             </IconButton>
           )}
         </div>
@@ -405,21 +386,13 @@ export function Review({ workspace, narrow = false }: ReviewProps) {
               void refreshReview()
             }}
           >
-            <RefreshCcw
-              size={sizes.iconBase}
-              strokeWidth={1.8}
-              className={reviewLoading ? 'takoyaki-spin' : undefined}
-            />
+            <RefreshCcw size={13} strokeWidth={1.9} className={reviewLoading ? 'takoyaki-spin' : undefined} />
           </IconButton>
           <IconButton label={reviewFocusMode ? 'Exit focus mode' : 'Enter focus mode'} onClick={toggleReviewFocusMode}>
-            {reviewFocusMode ? (
-              <Minimize2 size={sizes.iconBase} strokeWidth={1.8} />
-            ) : (
-              <Maximize2 size={sizes.iconBase} strokeWidth={1.8} />
-            )}
+            {reviewFocusMode ? <Minimize2 size={13} strokeWidth={1.9} /> : <Maximize2 size={13} strokeWidth={1.9} />}
           </IconButton>
           <IconButton label="Close review" onClick={closeReview}>
-            <X size={sizes.iconBase} strokeWidth={1.8} />
+            <X size={13} strokeWidth={1.9} />
           </IconButton>
         </div>
       </div>
@@ -448,17 +421,18 @@ export function Review({ workspace, narrow = false }: ReviewProps) {
               }}
             >
               {snapshot ? (
-                <FileList
+                <ReviewTree
                   files={snapshot.files}
                   selectedFilePath={selectedReviewFilePath}
                   onSelect={(filePath) => {
+                    if (narrow) setShowTreeOnNarrow(false)
                     void selectReviewFile(filePath)
                   }}
                 />
               ) : null}
             </div>
           )}
-          {(!narrow || selectedFile) && (
+          {(!narrow || (!showTreeOnNarrow && selectedFile)) && (
             <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <DiffPane file={selectedFile} patch={selectedPatch} loading={reviewPatchLoading} />
             </div>

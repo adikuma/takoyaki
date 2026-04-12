@@ -62,6 +62,7 @@ export interface ManagedTaskMatch {
   worktreePath: string
 }
 
+// run git with shared timeout and error normalization for all worktree operations
 function runGit(cwd: string, args: string[], timeoutMs = GIT_TIMEOUT_MS): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -84,20 +85,24 @@ function runGit(cwd: string, args: string[], timeoutMs = GIT_TIMEOUT_MS): Promis
   })
 }
 
+// pause between forced remove retries when windows still has the worktree open
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// detect the windows errors that usually mean a live process still owns the worktree
 function isLikelyWorktreeInUseError(message: string): boolean {
   return /access is denied|device or resource busy|resource busy|permission denied|directory not empty|in use|being used by another process|cannot access the file|used by another process/i.test(
     message,
   )
 }
 
+// detect stale metadata cases where the worktree is already gone and only cleanup remains
 function isStaleManagedWorktreeError(message: string): boolean {
   return /not a working tree|is not a working tree|not a git repository/i.test(message)
 }
 
+// turn raw git removal failures into user facing task removal copy
 function formatRemoveTaskError(message: string): string {
   if (isLikelyWorktreeInUseError(message)) {
     return 'Task worktree is still in use. Close running processes, terminals, or editors using it and try again.'
@@ -105,6 +110,7 @@ function formatRemoveTaskError(message: string): string {
   return message || 'Unable to remove task worktree'
 }
 
+// turn a task title or repo name into a filesystem safe path segment
 function slugify(value: string): string {
   return (
     value
@@ -115,14 +121,17 @@ function slugify(value: string): string {
   )
 }
 
+// normalize stored worktree paths so metadata survives windows path differences
 function normalizePath(input: string): string {
   return input.replace(/\\/g, '/')
 }
 
+// keep takoyaki task metadata alongside the repo's git data
 function taskMetadataPath(projectRoot: string): string {
   return path.join(projectRoot, '.git', TASKS_METADATA_FILE)
 }
 
+// recover a readable title for tasks that were found from metadata or branch names
 function deriveTaskTitle(branchName: string, worktreePath: string): string {
   const raw = branchName.startsWith('task/') ? branchName.slice(5) : branchName
   const source = raw || path.basename(worktreePath)
@@ -135,6 +144,7 @@ function deriveTaskTitle(branchName: string, worktreePath: string): string {
   )
 }
 
+// parse git worktree list output into structured entries the app can reconcile
 function parseWorktreeList(output: string): ParsedWorktreeEntry[] {
   const entries: ParsedWorktreeEntry[] = []
   const lines = output.split(/\r?\n/)
@@ -179,6 +189,7 @@ function parseWorktreeList(output: string): ParsedWorktreeEntry[] {
   return entries
 }
 
+// read task metadata defensively so corrupt files do not break project recovery
 function readTaskMetadata(projectRoot: string): TaskMetadata[] {
   try {
     const filePath = taskMetadataPath(projectRoot)
@@ -198,6 +209,7 @@ function readTaskMetadata(projectRoot: string): TaskMetadata[] {
   }
 }
 
+// rewrite the metadata file in sorted order so recovery stays deterministic
 function writeTaskMetadata(projectRoot: string, tasks: TaskMetadata[]): void {
   const filePath = taskMetadataPath(projectRoot)
   if (!tasks.length) {
@@ -211,6 +223,7 @@ function writeTaskMetadata(projectRoot: string, tasks: TaskMetadata[]): void {
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8')
 }
 
+// replace any existing metadata record for the same worktree path
 function upsertTaskMetadata(projectRoot: string, nextTask: TaskMetadata): void {
   const normalizedPath = normalizePath(nextTask.worktreePath)
   const tasks = readTaskMetadata(projectRoot).filter((task) => normalizePath(task.worktreePath) !== normalizedPath)
@@ -218,6 +231,7 @@ function upsertTaskMetadata(projectRoot: string, nextTask: TaskMetadata): void {
   writeTaskMetadata(projectRoot, tasks)
 }
 
+// remove a task metadata record once the worktree has been deleted or cleaned up
 function removeTaskMetadata(projectRoot: string, worktreePath: string): void {
   const normalizedPath = normalizePath(worktreePath)
   const remaining = readTaskMetadata(projectRoot).filter((task) => normalizePath(task.worktreePath) !== normalizedPath)
@@ -229,6 +243,7 @@ function removeTaskMetadata(projectRoot: string, worktreePath: string): void {
   writeTaskMetadata(projectRoot, remaining)
 }
 
+// treat missing worktrees as a cleanup success so stale task entries can be removed safely
 async function cleanupStaleTaskMetadata(projectRoot: string, worktreePath: string): Promise<RemoveTaskResult> {
   await runGit(projectRoot, ['worktree', 'prune']).catch(() => '')
   removeTaskMetadata(projectRoot, worktreePath)
@@ -239,6 +254,7 @@ async function cleanupStaleTaskMetadata(projectRoot: string, worktreePath: strin
   }
 }
 
+// check whether a branch ref already exists before creating task branches
 async function refExists(projectRoot: string, refName: string): Promise<boolean> {
   try {
     await runGit(projectRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${refName}`])
@@ -248,6 +264,7 @@ async function refExists(projectRoot: string, refName: string): Promise<boolean>
   }
 }
 
+// unborn repos cannot create worktrees because there is no commit to branch from yet
 async function hasInitialCommit(projectRoot: string): Promise<boolean> {
   try {
     await runGit(projectRoot, ['rev-parse', '--verify', 'HEAD'])
@@ -257,6 +274,7 @@ async function hasInitialCommit(projectRoot: string): Promise<boolean> {
   }
 }
 
+// keep suggested task branch names unique without rewriting explicit names unnecessarily
 async function uniqueBranchName(projectRoot: string, preferred: string): Promise<string> {
   if (!(await refExists(projectRoot, preferred))) return preferred
   let index = 2
@@ -264,6 +282,7 @@ async function uniqueBranchName(projectRoot: string, preferred: string): Promise
   return `${preferred}-${index}`
 }
 
+// create a worktree folder beside the repo and avoid collisions with existing folders
 function uniqueWorktreePath(projectRoot: string, slug: string): string {
   const repoRootName = slugify(path.basename(projectRoot))
   const parentDir = path.dirname(projectRoot)
@@ -277,6 +296,7 @@ function uniqueWorktreePath(projectRoot: string, slug: string): string {
 }
 
 export class GitWorktreeService {
+  // detect whether an opened folder is one of this repo's managed task worktrees
   async findManagedTaskForPath(inputPath: string | null | undefined): Promise<ManagedTaskMatch | null> {
     if (!inputPath) return null
 
@@ -314,6 +334,7 @@ export class GitWorktreeService {
     }
   }
 
+  // resolve the git toplevel for a path and normalize it for later comparisons
   async detectRepoRoot(inputPath: string | null | undefined): Promise<string | null> {
     if (!inputPath) return null
     try {
@@ -324,21 +345,25 @@ export class GitWorktreeService {
     }
   }
 
+  // prefer a detected repo root and otherwise fall back to the raw path for plain folders
   async resolveProjectRoot(inputPath: string): Promise<string> {
     return (await this.detectRepoRoot(inputPath)) || normalizePath(inputPath)
   }
 
+  // treat any porcelain output as uncommitted work when removing tasks
   async isTaskDirty(worktreePath: string): Promise<boolean> {
     const dirty = (await runGit(worktreePath, ['status', '--porcelain=v1', '-uall']).catch(() => '')).trim()
     return Boolean(dirty)
   }
 
+  // read the current checked out branch and fail when the repo is detached
   async getCurrentBranch(projectRoot: string): Promise<string> {
     const branch = (await runGit(projectRoot, ['branch', '--show-current'])).trim()
     if (!branch) throw new Error('Repository is not on a named branch')
     return branch
   }
 
+  // list local and remote branches with the current branch pinned to the top
   async listBranches(projectRoot: string): Promise<string[]> {
     const currentBranch = await this.getCurrentBranch(projectRoot).catch(() => '')
     const output = await runGit(projectRoot, [
@@ -358,6 +383,7 @@ export class GitWorktreeService {
     return [currentBranch, ...branches.filter((branch) => branch !== currentBranch)]
   }
 
+  // reconcile git worktree list output with takoyaki metadata and prune stale entries
   async listManagedWorktrees(projectRoot: string): Promise<ManagedWorktree[]> {
     const output = await runGit(projectRoot, ['worktree', 'list', '--porcelain'])
     const allEntries = parseWorktreeList(output)
@@ -394,6 +420,7 @@ export class GitWorktreeService {
     })
   }
 
+  // create a task branch and worktree while keeping title branch and folder naming separate
   async createTask(options: CreateTaskOptions): Promise<CreateTaskResult> {
     const taskTitle = options.taskTitle.trim()
     if (!taskTitle) throw new Error('Task title is required')
@@ -426,6 +453,7 @@ export class GitWorktreeService {
     }
   }
 
+  // remove a task worktree and fall back to stale metadata cleanup when the worktree is already gone
   async removeTask(projectRoot: string, worktreePath: string, force = false): Promise<RemoveTaskResult> {
     const dirty = await this.isTaskDirty(worktreePath)
     if (dirty && !force) {

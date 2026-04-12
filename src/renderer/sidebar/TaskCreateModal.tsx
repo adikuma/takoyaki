@@ -22,6 +22,7 @@ interface TaskCreateModalProps {
   onSubmit: () => void
 }
 
+// render the task creation form while keeping validation and submit state controlled by the parent hook
 export function TaskCreateModal({
   open,
   taskTitle,

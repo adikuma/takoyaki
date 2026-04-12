@@ -17,10 +17,12 @@ export interface RpcResponse {
   error?: { code: string; message: string }
 }
 
+// wraps a successful rpc result in the shared response shape
 function ok(id: unknown, result: unknown): RpcResponse {
   return { id: id as string, ok: true, result }
 }
 
+// wraps a failed rpc result with a stable error shape
 function err(id: unknown, code: string, message: string): RpcResponse {
   return { id: id as string, ok: false, error: { code, message } }
 }

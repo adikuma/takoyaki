@@ -39,6 +39,7 @@ function MissingMark() {
   return <X size={sizes.iconSm} strokeWidth={2} color={colors.textGhost} />
 }
 
+// render the settings drawer and its hook and editor preference controls
 export function Settings({ open, onClose }: Props) {
   const [diagnostics, setDiagnostics] = useState<HookDiagnostics | null>(null)
   const [installing, setInstalling] = useState(false)
@@ -60,12 +61,14 @@ export function Settings({ open, onClose }: Props) {
     setDiagnostics(next)
   }
 
+  // refresh hook diagnostics whenever the drawer opens
   useEffect(() => {
     if (open && window.takoyaki?.hooks) {
       loadDiagnostics()
     }
   }, [open])
 
+  // load editor availability and preference only while the drawer is visible
   useEffect(() => {
     if (!open || !window.takoyaki?.editor) return
     void loadEditorState()

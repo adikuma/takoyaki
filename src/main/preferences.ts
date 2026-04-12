@@ -14,12 +14,12 @@ const DEFAULT_PREFERENCES: AppPreferences = {
   pinnedProjectRoots: [],
 }
 
-// keep the preferences file resilient when older versions only stored the editor choice
+// accepts only the editor kinds the app can actually persist and launch
 function isEditorKind(value: unknown): value is EditorKind {
   return value === 'cursor' || value === 'vscode' || value === 'zed' || value === 'explorer'
 }
 
-// normalize project roots so one project does not get pinned twice with different slash styles
+// normalizes project roots so the same project is not pinned twice with different slash styles
 export function normalizePinnedProjectRoot(projectRoot: string): string {
   const trimmed = projectRoot.trim()
   if (!trimmed) return ''
@@ -34,6 +34,7 @@ export function normalizePinnedProjectRoot(projectRoot: string): string {
   return normalized
 }
 
+// dedupes and normalizes the stored pin list before it hits disk
 function normalizePinnedProjectRoots(projectRoots: readonly string[]): string[] {
   const normalized: string[] = []
   const seen = new Set<string>()

@@ -50,6 +50,7 @@ export function collectWorkspaceTerminals(
 }
 
 // avoid rerender work when the measured terminal frames have not actually changed
+// compare measured frames structurally so pane layout updates only rerender when geometry changes
 export function equalTerminalFrames(
   first: Record<string, TerminalFrame>,
   second: Record<string, TerminalFrame>,

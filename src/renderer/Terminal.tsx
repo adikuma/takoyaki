@@ -38,16 +38,19 @@ function getTerminalRuntimeInfo(): Promise<TerminalRuntimeInfo> {
   return terminalRuntimeInfoPromise
 }
 
+// render the same exit footer for restored and live terminal shutdowns
 function formatTerminalExitMessage(exitCode: number | null, exitSignal: number | null): string {
   if (exitCode !== null) return `\r\n[exited: ${exitCode}]`
   if (exitSignal !== null) return `\r\n[exited: signal ${exitSignal}]`
   return '\r\n[exited]'
 }
 
+// prefer serialized xterm state and fall back to plain transcript history for older sessions
 function snapshotRestoreData(snapshot: TerminalSnapshot): string {
   return snapshot.serializedState || snapshot.history
 }
 
+// keep browser shortcuts out of the way while still letting xterm own most control chords
 function shouldLetTerminalOwnControlKey(event: KeyboardEvent): boolean {
   if (!(event.ctrlKey || event.metaKey)) return false
 
@@ -76,9 +79,11 @@ interface Props {
   terminalId: string
   fontSize: number
   frame: TerminalFrame | null
+  paneLabel?: string | null
   isFocused?: boolean
 }
 
+// keep pane actions minimal while still exposing hover affordances and tooltips
 function PaneToolbarButton({
   label,
   onClick,
@@ -124,7 +129,8 @@ function PaneToolbarButton({
   )
 }
 
-export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: Props) {
+// render one live xterm instance and keep it in sync with backend snapshots and events
+export function Terminal({ surfaceId, terminalId, fontSize, frame, paneLabel, isFocused }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -150,6 +156,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     frameRef.current = frame
   }, [frame])
 
+  // debounce layout driven resizes so sidebar motion does not spam xterm with intermediate dimensions
   const clearPendingResize = useCallback(() => {
     if (resizeTimeoutRef.current) {
       clearTimeout(resizeTimeoutRef.current)
@@ -195,6 +202,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     }, 32)
   }, [clearPendingResize, terminalId])
 
+  // apply font changes through xterm options and then refit the live terminal
   const applyTerminalFontSize = useCallback(
     (nextFontSize: number) => {
       const clamped = clampTerminalFontSize(nextFontSize)
@@ -207,6 +215,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     [requestResize],
   )
 
+  // persist pane local zoom changes back into workspace state
   const setPaneFontSize = useCallback(
     (nextFontSize: number) => {
       const clamped = clampTerminalFontSize(nextFontSize)
@@ -224,10 +233,12 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     [setPaneFontSize],
   )
 
+  // follow workspace font changes without recreating the terminal session
   useEffect(() => {
     applyTerminalFontSize(fontSize)
   }, [applyTerminalFontSize, fontSize])
 
+  // serialize terminal writes so snapshot hydration and live events never interleave
   const queueTerminalTask = useCallback((task: () => Promise<void> | void) => {
     writeQueueRef.current = writeQueueRef.current.then(async () => {
       await task()
@@ -238,6 +249,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     return writeQueueRef.current
   }, [])
 
+  // wrap xterm writes in a promise so replay can stay ordered
   const writeToTerminal = useCallback((term: XTerm, data: string) => {
     if (!data) return Promise.resolve()
     return new Promise<void>((resolve) => {
@@ -249,6 +261,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     })
   }, [])
 
+  // track alternate screen state and whether the scroll to bottom affordance should show
   const syncScrollAffordances = useCallback((term: XTerm) => {
     const alternateScreen = term.buffer.active.type === 'alternate'
     setIsAlternateScreen((current) => (current === alternateScreen ? current : alternateScreen))
@@ -262,6 +275,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     setShowScrollToBottom(hiddenLineCount > SCROLL_TO_BOTTOM_THRESHOLD)
   }, [])
 
+  // rebuild the view from a backend snapshot before applying any newer streamed events
   const applySnapshot = useCallback(
     (term: XTerm, snapshot: TerminalSnapshot) =>
       queueTerminalTask(async () => {
@@ -278,6 +292,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     [queueTerminalTask, syncScrollAffordances, writeToTerminal],
   )
 
+  // replay one terminal event on top of the last applied snapshot boundary
   const applyEvent = useCallback(
     (term: XTerm, event: TerminalEvent) =>
       queueTerminalTask(async () => {
@@ -295,6 +310,8 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
           return
         }
 
+        if (event.type === 'metadata') return
+
         if (event.type === 'output') {
           await writeToTerminal(term, event.data)
         } else if (event.type === 'exited') {
@@ -309,6 +326,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     [queueTerminalTask, syncScrollAffordances, writeToTerminal],
   )
 
+  // create the xterm instance once per terminal id and wire it to the preload bridge
   useEffect(() => {
     if (!containerRef.current || !window.takoyaki) return
 
@@ -527,6 +545,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     terminalId,
   ])
 
+  // visible frame changes should only trigger resize work and never rebuild xterm
   useEffect(() => {
     if (!isVisible) {
       termRef.current?.blur()
@@ -537,6 +556,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     requestResize()
   }, [frame?.height, frame?.left, frame?.top, frame?.width, isVisible, requestResize])
 
+  // follow focused pane changes so keyboard input lands in the expected terminal
   useEffect(() => {
     const term = termRef.current
     if (!term) return
@@ -549,6 +569,7 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     term.blur()
   }, [isFocused, isVisible])
 
+  // only open find when the global shortcut targets the currently focused visible pane
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.onShortcut((action: string) => {
@@ -560,18 +581,21 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
     return cleanup
   }, [isFocused, isVisible])
 
+  // drive the xterm search addon from the local search bar state
   const doSearch = (query: string, direction: 'next' | 'prev' = 'next') => {
     if (!searchAddonRef.current || !query) return
     if (direction === 'next') searchAddonRef.current.findNext(query)
     else searchAddonRef.current.findPrevious(query)
   }
 
+  // reset search ui and clear search addon decorations together
   const closeSearch = () => {
     setSearchOpen(false)
     setSearchQuery('')
     searchAddonRef.current?.clearDecorations()
   }
 
+  // keep main process focus state aligned with pointer and keyboard focus in the pane
   const syncSurfaceFocus = () => {
     void window.takoyaki?.surface.focus(surfaceId)
   }
@@ -675,13 +699,25 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, isFocused }: 
 
       {isVisible && (
         <div
-          className="shrink-0 flex items-center justify-end px-2 py-1"
+          className="shrink-0 flex items-center justify-between gap-3 px-2 py-1"
           style={{
             minHeight: 30,
             background: isFocused && isVisible ? colors.bgSubtle : colors.terminalBg,
             borderBottom: `1px solid ${isFocused && isVisible ? colors.separator : 'transparent'}`,
           }}
         >
+          <div
+            className="min-w-0 flex-1 truncate pl-1"
+            style={{
+              color: isFocused ? colors.textPrimary : colors.textSecondary,
+              fontFamily: fonts.ui,
+              fontSize: 12,
+              fontWeight: 500,
+            }}
+            title={paneLabel || undefined}
+          >
+            {paneLabel || ''}
+          </div>
           <div className="inline-flex items-center gap-0.5" onMouseDown={(event) => event.stopPropagation()}>
             <PaneToolbarButton label="Split right" onClick={handleSplitRight}>
               <Columns2 size={sizes.iconSm} strokeWidth={1.8} />

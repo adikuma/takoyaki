@@ -96,6 +96,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
     [editorAvailability],
   )
 
+  // bind the project search shortcut to either the drawer or the full sidebar shell
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.onShortcut((action: string) => {
@@ -111,11 +112,13 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
     return cleanup
   }, [collapsed, drawerOpen, narrow, onRequestOpen, toggleSidebar])
 
+  // select a workspace and close the mobile drawer when needed
   const handleSelectWorkspace = (workspaceId: string) => {
     void selectWorkspace(workspaceId)
     if (narrow) onRequestClose?.()
   }
 
+  // launch the chosen workspace in the user's preferred editor and surface launch errors as toasts
   const handleOpenInEditor = async (workspaceId: string) => {
     if (openingWorkspaceId === workspaceId) return
     if (!availableEditors.length) {
@@ -135,6 +138,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
     if (result.ok && narrow) onRequestClose?.()
   }
 
+  // open review for the selected workspace and close the narrow drawer if present
   const handleOpenReview = (workspaceId: string) => {
     void openReview(workspaceId)
     if (narrow) onRequestClose?.()
@@ -212,6 +216,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
         projects={filtered}
         tasksByProjectId={tasksByProjectId}
         activeId={activeId}
+        theme={theme}
         surfaceStatuses={surfaceStatuses}
         pinnedProjectRoots={pinnedProjectRoots}
         onSelectWorkspace={handleSelectWorkspace}
