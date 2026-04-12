@@ -15,6 +15,7 @@ export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId)
   const workspaces = useStore((s) => s.workspaces)
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId) || null
+  // show the parent project name when a task workspace is active
   const renderProjectTitle = (() => {
     if (!activeWorkspace) return null
     if (activeWorkspace.kind === 'task' && activeWorkspace.parentProjectId) {
@@ -22,6 +23,7 @@ export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
     }
     return activeWorkspace.title
   })()
+  // append the task title after the project breadcrumb when viewing a task
   const renderTaskTitle = (() => {
     if (!activeWorkspace || activeWorkspace.kind !== 'task') return null
     return activeWorkspace.title

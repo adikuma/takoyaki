@@ -3,11 +3,8 @@ import type { WorkspaceTerminal } from './terminal-layout'
 
 const FRONTEND_FOLDER_NAMES = new Set(['frontend', 'web', 'client', 'ui', 'site', 'app'])
 const BACKEND_FOLDER_NAMES = new Set(['backend', 'api', 'server'])
-const TOOL_COMMAND_NAMES = {
-  claude: 'Claude',
-  codex: 'Codex',
-} as const
 
+// normalizes folder names into calm human friendly labels
 function titleCaseWords(input: string): string {
   return input
     .split(/[\s_-]+/)
@@ -16,6 +13,7 @@ function titleCaseWords(input: string): string {
     .join(' ')
 }
 
+// pulls the last folder name from a cwd so pane labels can fall back cleanly
 function basenameFromCwd(cwd: string | null | undefined): string | null {
   if (!cwd) return null
   const trimmed = cwd.replace(/[\\/]+$/, '')
@@ -24,6 +22,7 @@ function basenameFromCwd(cwd: string | null | undefined): string | null {
   return segments.at(-1) || null
 }
 
+// treats claude hook activity as the strongest pane identity signal
 function hasClaudeIdentity(status: HookSurfaceStatus | undefined, metadata: TerminalMetadata | undefined): boolean {
   if (status && (status.sessionPresent || status.lastEventName !== null || status.activity !== 'idle')) {
     return true
@@ -32,26 +31,7 @@ function hasClaudeIdentity(status: HookSurfaceStatus | undefined, metadata: Term
   return title.includes('claude')
 }
 
-function parseCommandTokens(command: string | null | undefined): string[] {
-  if (!command) return []
-  return command
-    .toLowerCase()
-    .split(/\s+/)
-    .map((token) => token.replace(/^['"]|['"]$/g, ''))
-}
-
-function labelFromCommand(command: string | null | undefined): string | null {
-  const tokens = parseCommandTokens(command)
-  for (const [commandName, label] of Object.entries(TOOL_COMMAND_NAMES)) {
-    if (
-      tokens.some((token) => token === commandName || token === `${commandName}.cmd` || token === `${commandName}.exe`)
-    ) {
-      return label
-    }
-  }
-  return null
-}
-
+// uses the terminal title for tool specific labels when the title exposes one
 function labelFromTitle(title: string | null | undefined): string | null {
   const normalized = title?.toLowerCase() || ''
   if (normalized.includes('claude')) return 'Claude'
@@ -59,6 +39,7 @@ function labelFromTitle(title: string | null | undefined): string | null {
   return null
 }
 
+// maps common workspace folders to role labels before falling back to the raw folder name
 function labelFromCwd(cwd: string | null | undefined): string | null {
   const basename = basenameFromCwd(cwd)
   if (!basename) return null
@@ -69,6 +50,7 @@ function labelFromCwd(cwd: string | null | undefined): string | null {
   return titleCaseWords(basename)
 }
 
+// keeps repeated pane labels readable when several panes resolve to the same identity
 function dedupeLabels(labels: Array<{ surfaceId: string; label: string }>): Record<string, string> {
   const counts = new Map<string, number>()
   const deduped: Record<string, string> = {}
@@ -82,6 +64,7 @@ function dedupeLabels(labels: Array<{ surfaceId: string; label: string }>): Reco
   return deduped
 }
 
+// resolves the visible label for each pane from the safest metadata we have
 export function resolvePaneLabels({
   paneLeaves,
   terminalViews,
@@ -102,7 +85,6 @@ export function resolvePaneLabels({
       const status = surfaceStatuses[leaf.surfaceId]
       const label =
         (hasClaudeIdentity(status, metadata) ? 'Claude' : null) ||
-        labelFromCommand(metadata?.recentCommand) ||
         labelFromTitle(metadata?.title) ||
         labelFromCwd(metadata?.cwd) ||
         `Pane ${index + 1}`

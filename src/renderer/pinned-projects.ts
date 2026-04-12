@@ -1,6 +1,6 @@
 import type { Workspace } from './types'
 
-// keep project pin matching consistent with the persisted preferences data
+// keeps renderer side pin matching aligned with persisted preferences
 export function normalizePinnedProjectRoot(projectRoot: string): string {
   const trimmed = projectRoot.trim()
   if (!trimmed) return ''
@@ -11,13 +11,14 @@ export function normalizePinnedProjectRoot(projectRoot: string): string {
   return normalized
 }
 
+// checks pin membership after normalizing path differences from windows paths
 export function isPinnedProject(projectRoot: string | undefined, pinnedProjectRoots: readonly string[]): boolean {
   if (!projectRoot) return false
   const normalized = normalizePinnedProjectRoot(projectRoot)
   return pinnedProjectRoots.includes(normalized)
 }
 
-// sort pinned projects to the top without disturbing the order inside each bucket
+// lifts pinned projects to the top without reordering items inside each bucket
 export function sortProjectsByPinned(projects: Workspace[], pinnedProjectRoots: readonly string[]): Workspace[] {
   const pinned: Workspace[] = []
   const unpinned: Workspace[] = []

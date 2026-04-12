@@ -21,6 +21,7 @@ interface TaskRemovalDeps {
   force?: boolean
 }
 
+// closes a task workspace first and then removes its worktree so windows file locks do not block cleanup
 export async function removeTaskWorkspaceAndWorktree({
   workspaces,
   worktreeService,

@@ -22,6 +22,7 @@ const editorCommands: Record<(typeof CODE_EDITORS)[number], string> = {
   zed: 'zed',
 }
 
+// finds the first executable path for a command on windows
 function resolveCommand(command: string): Promise<string | null> {
   return new Promise((resolve) => {
     execFile('where', [command], { encoding: 'utf8', windowsHide: true }, (error, stdout) => {
@@ -39,6 +40,7 @@ function resolveCommand(command: string): Promise<string | null> {
   })
 }
 
+// converts slash normalized paths into the windows launch form external editors expect
 function normalizeWindowsLaunchPath(targetPath: string): string {
   if (/^[A-Za-z]:\//.test(targetPath)) {
     return targetPath.replace(/\//g, '\\')
@@ -46,18 +48,22 @@ function normalizeWindowsLaunchPath(targetPath: string): string {
   return targetPath
 }
 
+// keeps editor launching behind the current windows only support boundary
 function isWindows(): boolean {
   return process.platform === 'win32'
 }
 
+// centralizes launch arguments so editor specific behavior stays easy to extend later
 function launchArgs(editor: EditorKind, targetPath: string): string[] {
   return [targetPath]
 }
 
+// quotes one powershell argument without losing embedded single quotes
 function quoteForPowerShell(arg: string): string {
   return `'${arg.replace(/'/g, "''")}'`
 }
 
+// prefers real executable paths when where resolves a command shim without an extension
 function normalizeResolvedExecutable(resolved: string): string {
   if (path.extname(resolved)) return resolved
   const candidates = ['.cmd', '.bat', '.exe'].map((ext) => `${resolved}${ext}`)
@@ -65,6 +71,7 @@ function normalizeResolvedExecutable(resolved: string): string {
   return match ?? resolved
 }
 
+// launches editors through powershell so cmd shims work the same as real executables
 function buildWindowsShellSpawn(
   command: string,
   args: string[],
@@ -80,6 +87,7 @@ function buildWindowsShellSpawn(
   }
 }
 
+// waits just long enough to treat the editor launch as successful without blocking on the child forever
 function spawnAndWait(
   command: string,
   args: string[],

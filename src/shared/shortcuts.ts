@@ -51,6 +51,7 @@ export const shortcutDisplayRows: Array<{ description: string; label: string }> 
   { description: 'Jump to project', label: 'Ctrl+Shift+1-9' },
 ]
 
+// maps a keyboard event shape to the shortcut action takoyaki understands
 export function matchTakoyakiShortcut(input: ShortcutInput): ShortcutMatch | null {
   if (!(input.ctrlKey || input.metaKey)) return null
 

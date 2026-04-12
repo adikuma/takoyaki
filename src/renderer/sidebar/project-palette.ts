@@ -13,6 +13,7 @@ export interface ProjectAccent {
   taskWash: string
 }
 
+// hashes a project seed into a stable palette index without storing per project settings
 function hashSeed(seed: string): number {
   let hash = 2166136261
   for (let index = 0; index < seed.length; index += 1) {
@@ -22,6 +23,7 @@ function hashSeed(seed: string): number {
   return hash >>> 0
 }
 
+// converts a hex accent into rgba values for the softer sidebar treatments
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = hex.replace('#', '')
   const red = Number.parseInt(normalized.slice(0, 2), 16)
@@ -30,6 +32,7 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`
 }
 
+// layers a bloom and gradient wash so project identity reads as atmosphere instead of chrome
 function buildFlowingWash(accent: string, startAlpha: number, endAlpha: number, glowAlpha: number): string {
   return [
     `radial-gradient(140px 72px at 14% 50%, ${hexToRgba(accent, glowAlpha)} 0%, ${hexToRgba(accent, glowAlpha * 0.55)} 34%, transparent 72%)`,
@@ -37,6 +40,7 @@ function buildFlowingWash(accent: string, startAlpha: number, endAlpha: number, 
   ].join(', ')
 }
 
+// returns the full sidebar accent treatment for a project in the active theme
 export function getProjectAccent(seed: string | null | undefined, mode: ThemeMode = 'dark'): ProjectAccent {
   const normalizedSeed = seed?.trim().toLowerCase() || 'takoyaki'
   const palette = mode === 'light' ? LIGHT_PROJECT_ACCENT_PALETTE : DARK_PROJECT_ACCENT_PALETTE

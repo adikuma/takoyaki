@@ -19,6 +19,7 @@ export function BranchSelect({
   const rootRef = useRef<HTMLDivElement>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
 
+  // focus the filter and close the dropdown when interaction leaves the menu
   useEffect(() => {
     if (!open) {
       setFilterQuery('')

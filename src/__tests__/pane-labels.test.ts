@@ -8,7 +8,6 @@ function metadata(overrides: Partial<TerminalMetadata>): TerminalMetadata {
     terminalId: 'term-1',
     cwd: 'C:/Code/project',
     title: null,
-    recentCommand: null,
     updatedAt: new Date(0).toISOString(),
     ...overrides,
   }
@@ -37,13 +36,13 @@ describe('pane labels', () => {
     expect(labels['surface-1']).toBe('Claude')
   })
 
-  it('labels Codex panes from the tracked command', () => {
+  it('labels Codex panes from the tracked title', () => {
     const labels = resolvePaneLabels({
       paneLeaves: [{ surfaceId: 'surface-1' }],
       terminalViews: [{ workspaceId: 'ws-1', surfaceId: 'surface-1', terminalId: 'term-1', fontSize: 14 }],
       surfaceStatuses: {},
       terminalMetadataById: {
-        'term-1': metadata({ terminalId: 'term-1', recentCommand: 'codex --approval-mode suggest' }),
+        'term-1': metadata({ terminalId: 'term-1', title: 'Codex - Takoyaki' }),
       },
     })
 
@@ -91,8 +90,8 @@ describe('pane labels', () => {
       ],
       surfaceStatuses: {},
       terminalMetadataById: {
-        'term-1': metadata({ terminalId: 'term-1', recentCommand: 'codex' }),
-        'term-2': metadata({ terminalId: 'term-2', recentCommand: 'codex --continue' }),
+        'term-1': metadata({ terminalId: 'term-1', title: 'Codex' }),
+        'term-2': metadata({ terminalId: 'term-2', title: 'Codex - Resume' }),
       },
     })
 

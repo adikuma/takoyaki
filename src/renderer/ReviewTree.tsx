@@ -10,6 +10,7 @@ interface ReviewTreeProps {
   onSelect: (path: string) => void
 }
 
+// reuses the diff color mapping so tree rows hint at change type without extra badges
 function getStatusColor(status: ReviewFileStatus): string {
   if (status === 'added' || status === 'untracked') return colors.diffAddText
   if (status === 'deleted') return colors.diffDelText
@@ -17,16 +18,19 @@ function getStatusColor(status: ReviewFileStatus): string {
   return colors.textSecondary
 }
 
+// keeps parent folders visually active when they contain the selected file
 function nodeContainsSelectedPath(node: ReviewTreeNode, selectedFilePath: string | null): boolean {
   if (!selectedFilePath) return false
   if (node.kind === 'file') return node.path === selectedFilePath
   return node.children.some((child) => nodeContainsSelectedPath(child, selectedFilePath))
 }
 
+// renders the changed file tree with local expand and collapse state
 export function ReviewTree({ files, selectedFilePath, onSelect }: ReviewTreeProps) {
   const tree = useMemo(() => buildReviewTree(files), [files])
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
 
+  // resets folder expansion when the review snapshot changes to a new file set
   useEffect(() => {
     setCollapsedFolders(new Set())
   }, [files])

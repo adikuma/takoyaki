@@ -55,10 +55,12 @@ let lastHookTest: { ok: boolean; detail: string; testedAt: number } | null = nul
 let lastVisitedWorkspaceId: string | null = null
 const workspaceLastActivity = new Map<string, number>()
 
+// broadcast project level activity timestamps to the renderer
 function sendActivity(): void {
   send('activity:changed', Object.fromEntries(workspaceLastActivity))
 }
 
+// attribute recent activity to the project so the sidebar can sort by recency
 function noteWorkspaceActivity(workspaceId: string | null): void {
   if (!workspaceId) return
   const projectId = workspaces.projectIdForWorkspace(workspaceId) || workspaceId
@@ -66,6 +68,7 @@ function noteWorkspaceActivity(workspaceId: string | null): void {
   sendActivity()
 }
 
+// remember projects that should retry git promotion after later user interaction
 function queueProjectGitRefresh(workspaceId: string | null): void {
   if (!workspaceId) return
   const workspace = workspaces.get(workspaceId)
@@ -73,10 +76,12 @@ function queueProjectGitRefresh(workspaceId: string | null): void {
   pendingGitRefreshProjects.add(workspaceId)
 }
 
+// publish the latest claude surface state to the renderer
 function sendStatusUpdate(): void {
   send('status:changed', Object.fromEntries(surfaceStatuses))
 }
 
+// wait briefly for a test hook event to come back through the rpc socket
 async function waitForHookEvent(startedAt: number, surfaceId: string, activity: string): Promise<boolean> {
   const deadline = Date.now() + 3000
   while (Date.now() < deadline) {
@@ -93,6 +98,7 @@ async function waitForHookEvent(startedAt: number, surfaceId: string, activity: 
   return false
 }
 
+// clear non sticky claude statuses when the workspace is revisited
 function clearStatusesForWorkspace(workspaceId: string | null): void {
   if (!workspaceId) return
   let changed = false
@@ -107,6 +113,7 @@ function clearStatusesForWorkspace(workspaceId: string | null): void {
   if (changed) sendStatusUpdate()
 }
 
+// stop any pending stale running timeout for one claude surface
 function clearRunningExpiry(surfaceId: string): void {
   const timer = runningExpiryTimers.get(surfaceId)
   if (!timer) return
@@ -114,6 +121,7 @@ function clearRunningExpiry(surfaceId: string): void {
   runningExpiryTimers.delete(surfaceId)
 }
 
+// downgrade long idle running statuses after the stale ttl elapses
 function scheduleRunningExpiry(surfaceId: string, receivedAt: number): void {
   clearRunningExpiry(surfaceId)
   const timer = setTimeout(() => {
@@ -170,12 +178,14 @@ rpc.onStatusUpdate = (surfaceId: string, update: ClaudeStatusUpdate) => {
   sendStatusUpdate()
 }
 
+// send an ipc event only while the main browser window is alive
 function send(channel: string, ...args: unknown[]): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, ...args)
   }
 }
 
+// recover managed task worktrees for a git project whenever it is opened or promoted
 async function recoverProjectTasks(projectId: string): Promise<void> {
   const project = workspaces.get(projectId)
   // skip git recovery for plain folders
@@ -200,6 +210,7 @@ async function recoverProjectTasks(projectId: string): Promise<void> {
   }
 }
 
+// detect when a plain folder is actually a git repo and upgrade the workspace in place
 async function refreshProjectGitState(projectId: string | null, cwdOverride?: string | null): Promise<void> {
   if (!projectId) return
 
@@ -219,6 +230,7 @@ async function refreshProjectGitState(projectId: string | null, cwdOverride?: st
   }
 }
 
+// pick the path that should be used when refreshing git branch state for a workspace
 function gitWorkspacePath(workspaceId: string): string | null {
   const workspace = workspaces.get(workspaceId)
   if (!workspace || !workspace.gitEnabled) return null
@@ -232,6 +244,7 @@ function gitWorkspacePath(workspaceId: string): string | null {
   return candidatePath
 }
 
+// refresh one workspace branch label from git without rebuilding the workspace
 async function refreshWorkspaceBranch(workspaceId: string | null): Promise<void> {
   if (!workspaceId) return
   const workspace = workspaces.get(workspaceId)
@@ -244,6 +257,7 @@ async function refreshWorkspaceBranch(workspaceId: string | null): Promise<void>
   workspaces.setWorkspaceBranchName(workspaceId, branchName)
 }
 
+// prioritize active workspaces first when refreshing restored git state on startup
 function gitWorkspaceRefreshOrder(): string[] {
   const gitWorkspaceIds = workspaces
     .list()
@@ -272,12 +286,14 @@ function gitWorkspaceRefreshOrder(): string[] {
   return ordered
 }
 
+// refresh branch labels for restored git workspaces in a predictable order
 async function refreshRestoredGitBranches(): Promise<void> {
   for (const workspaceId of gitWorkspaceRefreshOrder()) {
     await refreshWorkspaceBranch(workspaceId)
   }
 }
 
+// update activity and kick off any selection driven git recovery work
 function noteSelection(workspaceId: string | null): void {
   if (!workspaceId) return
   noteWorkspaceActivity(workspaceId)
@@ -301,6 +317,7 @@ function noteSelection(workspaceId: string | null): void {
   }
 }
 
+// open a folder and normalize direct opened managed worktrees back under their parent project
 async function openProjectFolder(): Promise<ReturnType<typeof workspaces.create> | null> {
   if (!mainWindow) return null
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -351,6 +368,7 @@ async function openProjectFolder(): Promise<ReturnType<typeof workspaces.create>
   return workspace
 }
 
+// create the main browser window and wire its one time window lifecycle events
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -440,6 +458,7 @@ function createWindow(): void {
   })
 }
 
+// register the ipc surface that the preload bridge exposes to the renderer
 function setupIpc(): void {
   // clipboard
   ipcMain.handle('clipboard:read-text', () => clipboard.readText())

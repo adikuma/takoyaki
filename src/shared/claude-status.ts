@@ -56,6 +56,7 @@ function mergeAttention(current: ClaudeAttentionState, next: ClaudeAttentionStat
   return ATTENTION_PRIORITY[next] > ATTENTION_PRIORITY[current] ? next : current
 }
 
+// start every surface from an idle status so later hook events can layer on cleanly
 export function createDefaultClaudeSurfaceStatus(receivedAt = 0): ClaudeSurfaceStatus {
   return {
     activity: 'idle',
@@ -67,11 +68,13 @@ export function createDefaultClaudeSurfaceStatus(receivedAt = 0): ClaudeSurfaceS
   }
 }
 
+// map older running or finished updates into the newer activity model
 function normalizeLegacyActivity(status: string): ClaudeActivityState | null {
   if (status === 'running' || status === 'finished' || status === 'failed') return status
   return null
 }
 
+// fold one claude hook update into the current surface runtime status
 export function reduceClaudeSurfaceStatus(
   previous: ClaudeSurfaceStatus | undefined,
   update: ClaudeStatusUpdate,
@@ -141,20 +144,24 @@ export function reduceClaudeSurfaceStatus(
   }
 }
 
+// treat any active attention value as a user facing interruption
 export function isAttentionActive(status: ClaudeSurfaceStatus | null | undefined): boolean {
   return Boolean(status && status.attention !== 'none')
 }
 
+// keep only statuses that still matter after the latest event stream quiets down
 export function shouldKeepClaudeSurfaceStatus(status: ClaudeSurfaceStatus | null | undefined): boolean {
   if (!status) return false
   if (status.attention !== 'none') return true
   return status.activity === 'running'
 }
 
+// schedule a stale running cleanup only for panes that are active without pending attention
 export function shouldScheduleClaudeRunningExpiry(status: ClaudeSurfaceStatus | null | undefined): boolean {
   return Boolean(status && status.activity === 'running' && status.attention === 'none')
 }
 
+// downgrade abandoned running panes back to idle after the stale timeout
 export function staleClaudeSurfaceStatus(status: ClaudeSurfaceStatus, receivedAt: number): ClaudeSurfaceStatus {
   return {
     ...status,
@@ -164,6 +171,7 @@ export function staleClaudeSurfaceStatus(status: ClaudeSurfaceStatus, receivedAt
   }
 }
 
+// roll surface level claude state up into one workspace status for the sidebar
 export function aggregateClaudeWorkspaceStatus(
   surfaceStatuses: Record<string, ClaudeSurfaceStatus>,
   workspaceSurfaceIds: string[],
@@ -188,6 +196,7 @@ export function aggregateClaudeWorkspaceStatus(
   return hasFinished ? { kind: 'finished', attention: 'none' } : null
 }
 
+// convert the attention enum into human facing copy for tooltips
 export function getClaudeAttentionLabel(attention: ClaudeAttentionState): string | null {
   if (attention === 'plan_approval') return 'Plan approval needed'
   if (attention === 'permission') return 'Permission needed'

@@ -63,7 +63,6 @@ interface PreloadTerminalSnapshot {
   terminalId: string
   cwd: string
   title: string | null
-  recentCommand: string | null
   cols: number
   rows: number
   status: PreloadTerminalSessionStatus
@@ -80,7 +79,6 @@ interface PreloadTerminalMetadata {
   terminalId: string
   cwd: string
   title: string | null
-  recentCommand: string | null
   updatedAt: string
 }
 
@@ -106,7 +104,6 @@ type PreloadTerminalEvent =
       type: 'metadata'
       cwd: string
       title: string | null
-      recentCommand: string | null
     }
   | {
       terminalId: string

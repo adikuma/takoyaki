@@ -23,6 +23,7 @@ interface MutableFolderNode {
   files: ReviewTreeFileNode[]
 }
 
+// builds a mutable folder node while the tree is still being assembled
 function createMutableFolder(name: string, path: string): MutableFolderNode {
   return {
     name,
@@ -32,6 +33,7 @@ function createMutableFolder(name: string, path: string): MutableFolderNode {
   }
 }
 
+// converts the mutable tree into the renderer shape with stable folder first ordering
 function sortNodes(folder: MutableFolderNode): ReviewTreeNode[] {
   const folders = [...folder.folders.values()]
     .sort((left, right) => left.name.localeCompare(right.name))
@@ -49,6 +51,7 @@ function sortNodes(folder: MutableFolderNode): ReviewTreeNode[] {
   return [...folders, ...files]
 }
 
+// groups changed files by parent folders so the review rail shows structure before detail
 export function buildReviewTree(files: ReviewFile[]): ReviewTreeNode[] {
   const root = createMutableFolder('', '')
 

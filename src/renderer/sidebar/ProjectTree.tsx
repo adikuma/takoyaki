@@ -31,6 +31,7 @@ interface ProjectTreeProps {
   onConfirmRemoveTask: (task: { id: string; title: string }) => void
 }
 
+// render the full project list with each project's tasks grouped directly underneath it
 export function ProjectTree({
   projects,
   tasksByProjectId,
@@ -73,6 +74,7 @@ export function ProjectTree({
   )
 }
 
+// render one project row plus its child task rows with a shared accent treatment
 function ProjectTreeSection({
   workspace,
   tasks,
@@ -226,6 +228,7 @@ function ProjectTreeSection({
   )
 }
 
+// render one task row with quieter inherited project identity and task level actions
 function TaskRow({
   task,
   projectAccent,

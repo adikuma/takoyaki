@@ -14,6 +14,7 @@ export function Tooltip({ content, children, side = 'top', delay = 400 }: Props)
   const ref = useRef<HTMLDivElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // wait briefly before showing the tooltip so quick passes do not flicker
   const show = () => {
     timer.current = setTimeout(() => {
       if (!ref.current) return
@@ -29,11 +30,13 @@ export function Tooltip({ content, children, side = 'top', delay = 400 }: Props)
     }, delay)
   }
 
+  // cancel any pending tooltip show and hide immediately
   const hide = () => {
     if (timer.current) clearTimeout(timer.current)
     setVisible(false)
   }
 
+  // clear delayed timers when the tooltip unmounts
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current)

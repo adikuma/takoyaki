@@ -125,7 +125,6 @@ export interface TerminalSnapshot {
   terminalId: string
   cwd: string
   title: string | null
-  recentCommand: string | null
   cols: number
   rows: number
   status: TerminalSessionStatus
@@ -142,7 +141,6 @@ export interface TerminalMetadata {
   terminalId: string
   cwd: string
   title: string | null
-  recentCommand: string | null
   updatedAt: string
 }
 
@@ -168,7 +166,6 @@ export type TerminalEvent =
       type: 'metadata'
       cwd: string
       title: string | null
-      recentCommand: string | null
     }
   | {
       terminalId: string

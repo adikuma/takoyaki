@@ -18,6 +18,7 @@ interface PatchRow {
   newLine: number | null
 }
 
+// keeps the diff header status marker consistent with git style change letters
 function getStatusLabel(status: ReviewFileStatus): string {
   if (status === 'modified') return 'M'
   if (status === 'added' || status === 'untracked') return 'A'
@@ -27,6 +28,7 @@ function getStatusLabel(status: ReviewFileStatus): string {
   return 'T'
 }
 
+// maps review file states to the existing diff color system
 function getStatusColor(status: ReviewFileStatus): string {
   if (status === 'added' || status === 'untracked') return colors.diffAddText
   if (status === 'deleted') return colors.diffDelText
@@ -34,6 +36,7 @@ function getStatusColor(status: ReviewFileStatus): string {
   return colors.textSecondary
 }
 
+// picks the row treatment for each diff row type
 function getRowStyles(kind: PatchRow['kind']): { background: string; color: string; boxShadow: string } {
   if (kind === 'add') {
     return { background: colors.diffAddBg, color: colors.diffAddText, boxShadow: 'none' }
@@ -54,6 +57,7 @@ function getRowStyles(kind: PatchRow['kind']): { background: string; color: stri
   return { background: 'transparent', color: colors.textSecondary, boxShadow: 'none' }
 }
 
+// converts a unified diff string into renderable rows with tracked line numbers
 function parsePatchRows(patch: string): PatchRow[] {
   const rawLines = patch.split(/\r?\n/)
   if (rawLines[rawLines.length - 1] === '') rawLines.pop()
@@ -96,6 +100,7 @@ function parsePatchRows(patch: string): PatchRow[] {
   return rows
 }
 
+// renders a bare icon action for the review header controls
 function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <Tooltip content={label} side="bottom">
@@ -117,6 +122,7 @@ function IconButton({ label, onClick, children }: { label: string; onClick: () =
   )
 }
 
+// shows empty and loading states inside the diff panel without changing the overall layout
 function DiffPlaceholder({
   title,
   detail,
@@ -155,7 +161,9 @@ function DiffPlaceholder({
   )
 }
 
+// renders the selected file diff and adapts the line gutters to the diff shape
 function DiffPane({ file, patch, loading }: { file: ReviewFile | null; patch: ReviewPatch | null; loading: boolean }) {
+  // parses the current patch once so the diff grid can render line numbers and row styles
   const rows = useMemo(() => {
     if (!patch || patch.renderMode !== 'text') return []
     return parsePatchRows(patch.patch)
@@ -313,6 +321,7 @@ function DiffPane({ file, patch, loading }: { file: ReviewFile | null; patch: Re
   )
 }
 
+// owns the review workspace shell and coordinates tree selection with the diff pane
 export function Review({ workspace, narrow = false }: ReviewProps) {
   const reviewWorkspaceId = useStore((state) => state.reviewWorkspaceId)
   const selectedReviewFilePath = useStore((state) => state.selectedReviewFilePath)
@@ -336,6 +345,7 @@ export function Review({ workspace, narrow = false }: ReviewProps) {
       : null
   const showFileList = !narrow || showTreeOnNarrow || !selectedFile
 
+  // resets narrow mode to the tree whenever the layout or reviewed workspace changes
   useEffect(() => {
     if (narrow) setShowTreeOnNarrow(true)
   }, [narrow, reviewWorkspaceId])

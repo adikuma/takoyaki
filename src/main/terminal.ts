@@ -41,7 +41,6 @@ export interface TerminalMetadata {
   terminalId: string
   cwd: string
   title: string | null
-  recentCommand: string | null
   updatedAt: string
 }
 
@@ -51,7 +50,6 @@ export interface TerminalSnapshot {
   terminalId: string
   cwd: string
   title: string | null
-  recentCommand: string | null
   cols: number
   rows: number
   status: TerminalSessionStatus
@@ -91,7 +89,6 @@ export type TerminalEvent =
       type: 'metadata'
       cwd: string
       title: string | null
-      recentCommand: string | null
     }
   | {
       terminalId: string
@@ -125,8 +122,6 @@ interface TerminalSession {
   updatedAt: string
   metadataBuffer: string
   title: string | null
-  recentCommand: string | null
-  inputBuffer: string
   pendingActions: PendingTerminalAction[]
   isDraining: boolean
 }
@@ -145,6 +140,7 @@ const terminalRuntimeInfo = getTerminalRuntimeInfo()
 export class TerminalManager extends EventEmitter {
   private sessions = new Map<string, TerminalSession>()
 
+  // create a new pty session and start streaming its lifecycle through terminal events
   create(cwd?: string, surfaceId?: string): TerminalInfo {
     const id = randomUUID()
     const workingDir = cwd || homedir()
@@ -187,8 +183,6 @@ export class TerminalManager extends EventEmitter {
       updatedAt: new Date().toISOString(),
       metadataBuffer: '',
       title: null,
-      recentCommand: null,
-      inputBuffer: '',
       pendingActions: [],
       isDraining: false,
     }
@@ -215,41 +209,36 @@ export class TerminalManager extends EventEmitter {
     return termInfo
   }
 
+  // return the latest serialized terminal state for initial renderer hydration
   open(id: string): TerminalSnapshot | null {
     const session = this.sessions.get(id)
     return session ? this.snapshotOf(session) : null
   }
 
+  // expose lightweight metadata updates without replaying full terminal output
   metadata(id: string): TerminalMetadata | null {
     const session = this.sessions.get(id)
     return session ? this.metadataOf(session) : null
   }
 
+  // forward renderer input directly to the underlying pty
   write(id: string, data: string): boolean {
     const session = this.sessions.get(id)
     const proc = session?.process
     if (!proc || !session) return false
 
-    if (this.captureRecentCommand(session, data)) {
-      session.updatedAt = new Date().toISOString()
-      this.emitEvent(session, {
-        type: 'metadata',
-        cwd: session.info.cwd,
-        title: session.title,
-        recentCommand: session.recentCommand,
-      })
-    }
-
     proc.write(data)
     return true
   }
 
+  // queue resizes so conpty and the headless emulator stay in sync
   resize(id: string, cols: number, rows: number): void {
     const session = this.sessions.get(id)
     if (!session) return
     this.enqueueSessionAction(session, { type: 'resize', cols, rows })
   }
 
+  // tear down the pty and forget the session completely
   destroy(id: string): boolean {
     const session = this.sessions.get(id)
     if (!session) return false
@@ -281,12 +270,12 @@ export class TerminalManager extends EventEmitter {
     return this.sessions.get(id)?.info.cwd || homedir()
   }
 
+  // serialize the current emulator state into the snapshot format used by the renderer
   private snapshotOf(session: TerminalSession): TerminalSnapshot {
     return {
       terminalId: session.info.id,
       cwd: session.info.cwd,
       title: session.title,
-      recentCommand: session.recentCommand,
       cols: session.cols,
       rows: session.rows,
       status: session.status,
@@ -300,16 +289,17 @@ export class TerminalManager extends EventEmitter {
     }
   }
 
+  // return only the metadata fields the renderer needs for live pane identity
   private metadataOf(session: TerminalSession): TerminalMetadata {
     return {
       terminalId: session.info.id,
       cwd: session.info.cwd,
       title: session.title,
-      recentCommand: session.recentCommand,
       updatedAt: session.updatedAt,
     }
   }
 
+  // keep a bounded transcript so restored terminals can show recent history without unbounded growth
   private appendHistory(session: TerminalSession, data: string): void {
     const size = Buffer.byteLength(data, 'utf8')
     session.historyChunks.push(data)
@@ -322,6 +312,7 @@ export class TerminalManager extends EventEmitter {
     }
   }
 
+  // drain pty actions in order so output, resize, and exit updates stay consistent
   private enqueueSessionAction(session: TerminalSession, action: PendingTerminalAction): void {
     session.pendingActions.push(action)
     if (session.isDraining) return
@@ -329,6 +320,7 @@ export class TerminalManager extends EventEmitter {
     void this.drainSessionActions(session)
   }
 
+  // apply queued terminal actions to both the headless emulator and renderer event stream
   private async drainSessionActions(session: TerminalSession): Promise<void> {
     while (session.pendingActions.length > 0) {
       const action = session.pendingActions.shift()
@@ -351,7 +343,6 @@ export class TerminalManager extends EventEmitter {
             type: 'metadata',
             cwd: session.info.cwd,
             title: session.title,
-            recentCommand: session.recentCommand,
           })
         }
         if (metadata.sawPromptMarker) {
@@ -391,6 +382,7 @@ export class TerminalManager extends EventEmitter {
     }
   }
 
+  // feed output through xterm headless so snapshots match what the user saw
   private writeToEmulator(emulator: HeadlessTerminal, data: string): Promise<void> {
     if (!data) return Promise.resolve()
     return new Promise((resolve) => {
@@ -398,12 +390,13 @@ export class TerminalManager extends EventEmitter {
     })
   }
 
+  // stamp every emitted event with a shared sequence id for deterministic replay
   private emitEvent(
     session: TerminalSession,
     payload:
       | { type: 'started' }
       | { type: 'output'; data: string }
-      | { type: 'metadata'; cwd: string; title: string | null; recentCommand: string | null }
+      | { type: 'metadata'; cwd: string; title: string | null }
       | { type: 'exited'; exitCode: number | null; exitSignal: number | null }
       | { type: 'error'; message: string },
   ): void {
@@ -422,6 +415,7 @@ export class TerminalManager extends EventEmitter {
     this.emit('event', { ...base, ...payload } satisfies TerminalEvent)
   }
 
+  // parse tracked cwd markers and osc titles from terminal output without trusting the renderer
   private parseTerminalMetadata(
     session: TerminalSession,
     data: string,
@@ -460,6 +454,7 @@ export class TerminalManager extends EventEmitter {
     return { remainingBuffer: '', sawPromptMarker, metadataChanged }
   }
 
+  // only accept cwd updates that still point at a real directory
   private applyTrackedCwd(session: TerminalSession, cwd: string): boolean {
     try {
       if (!cwd || !existsSync(cwd) || !statSync(cwd).isDirectory()) return false
@@ -473,52 +468,11 @@ export class TerminalManager extends EventEmitter {
     return false
   }
 
+  // remember the latest osc title so pane labels can react to tool-owned titles
   private applyTrackedTitle(session: TerminalSession, title: string): boolean {
     const normalizedTitle = title || null
     if (session.title === normalizedTitle) return false
     session.title = normalizedTitle
     return true
-  }
-
-  private captureRecentCommand(session: TerminalSession, data: string): boolean {
-    // eslint-disable-next-line no-control-regex
-    const csiSequenceRegex = /\x1b\[[0-?]*[ -/]*[@-~]/g
-    // eslint-disable-next-line no-control-regex
-    const oscSequenceRegex = /\x1b\][^\x07]*(?:\x07)?/g
-    // eslint-disable-next-line no-control-regex
-    const escapePrefixRegex = /\x1b./g
-    const sanitizedInput = data
-      .replace(csiSequenceRegex, '')
-      .replace(oscSequenceRegex, '')
-      .replace(escapePrefixRegex, '')
-
-    let metadataChanged = false
-
-    for (const character of sanitizedInput) {
-      if (character === '\r' || character === '\n') {
-        const normalizedCommand = session.inputBuffer.replace(/\s+/g, ' ').trim()
-        session.inputBuffer = ''
-        if (normalizedCommand && session.recentCommand !== normalizedCommand) {
-          session.recentCommand = normalizedCommand
-          metadataChanged = true
-        }
-        continue
-      }
-
-      if (character === '\u0003' || character === '\u0015') {
-        session.inputBuffer = ''
-        continue
-      }
-
-      if (character === '\b' || character === '\u007f') {
-        session.inputBuffer = session.inputBuffer.slice(0, -1)
-        continue
-      }
-
-      if (character < ' ') continue
-      session.inputBuffer = `${session.inputBuffer}${character}`.slice(-512)
-    }
-
-    return metadataChanged
   }
 }

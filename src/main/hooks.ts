@@ -209,10 +209,12 @@ async function main() {
 main().catch((error) => fail(error && error.message ? error.message : 'unexpected hook failure'))
 `
 
+// make sure the generated notify bridge script exists before any diagnostics or installs run
 export function initializeHooks(): void {
   ensureNotifyScript()
 }
 
+// rewrite the notify script so claude always calls the current takoyaki bridge
 function ensureNotifyScript(): void {
   const binDir = path.join(TAKOYAKI_DIR, 'bin')
   if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true })
@@ -227,6 +229,7 @@ function asHookMatchers(value: unknown): ClaudeHookMatcher[] {
   return Array.isArray(value) ? (value.filter(isJsonObject) as ClaudeHookMatcher[]) : []
 }
 
+// show the setup banner only when claude exists but takoyaki managed hooks are still missing
 export function shouldShowHooksBanner(): boolean {
   initializeHooks()
 
@@ -239,6 +242,7 @@ export function shouldShowHooksBanner(): boolean {
   return true
 }
 
+// verify that every managed hook event points at the current takoyaki notify command
 export function isHooksConfigured(): boolean {
   try {
     const settings = readClaudeSettings()
@@ -249,6 +253,7 @@ export function isHooksConfigured(): boolean {
   }
 }
 
+// remove old takoyaki hook entries before rewriting the current managed command set
 function removeManagedHookEntries(hookArray: ClaudeHookMatcher[]): ClaudeHookMatcher[] {
   return hookArray.filter((entry) => {
     const serialized = JSON.stringify(entry)
@@ -256,6 +261,7 @@ function removeManagedHookEntries(hookArray: ClaudeHookMatcher[]): ClaudeHookMat
   })
 }
 
+// install or repair the managed hook commands inside claude's settings file
 export function installHooks(): boolean {
   try {
     initializeHooks()
@@ -289,10 +295,12 @@ export function installHooks(): boolean {
   }
 }
 
+// remember that the user dismissed the banner without a valid install
 export function dismissHooksBanner(): void {
   saveState({ ...readHooksState(), dismissed: true, installed: false })
 }
 
+// describe hook health in one payload for the settings panel
 export function getHookDiagnostics(): HookDiagnostics {
   initializeHooks()
 
@@ -407,6 +415,7 @@ export function getHookDiagnostics(): HookDiagnostics {
   }
 }
 
+// run the generated notify script end to end and wait for the socket roundtrip result
 export function testHooks(surfaceId: string, eventName: RequiredHookEvent = 'Stop'): Promise<HookTestResult> {
   initializeHooks()
 
@@ -452,6 +461,7 @@ export function testHooks(surfaceId: string, eventName: RequiredHookEvent = 'Sto
   })
 }
 
+// persist the small local setup state used by the banner and diagnostics
 function saveState(state: HooksState): void {
   try {
     if (!fs.existsSync(TAKOYAKI_DIR)) fs.mkdirSync(TAKOYAKI_DIR, { recursive: true })
@@ -461,6 +471,7 @@ function saveState(state: HooksState): void {
   }
 }
 
+// read the local setup state without letting parse failures break settings ui
 function readHooksState(): HooksState {
   try {
     if (!fs.existsSync(HOOKS_STATE_FILE)) return {}
@@ -470,6 +481,7 @@ function readHooksState(): HooksState {
   }
 }
 
+// build an all false installed map for diagnostics fallback cases
 function emptyInstalledHooks(): Record<RequiredHookEvent, boolean> {
   return Object.fromEntries(REQUIRED_HOOK_EVENTS.map((eventName) => [eventName, false])) as Record<
     RequiredHookEvent,
@@ -477,6 +489,7 @@ function emptyInstalledHooks(): Record<RequiredHookEvent, boolean> {
   >
 }
 
+// build an all missing hook state map for diagnostics fallback cases
 function emptyHookStates(): Record<RequiredHookEvent, HookCommandState> {
   return Object.fromEntries(REQUIRED_HOOK_EVENTS.map((eventName) => [eventName, 'missing'])) as Record<
     RequiredHookEvent,
@@ -484,18 +497,21 @@ function emptyHookStates(): Record<RequiredHookEvent, HookCommandState> {
   >
 }
 
+// read claude settings defensively because the file can be absent or user edited
 function readClaudeSettings(): ClaudeSettings {
   if (!fs.existsSync(CLAUDE_SETTINGS)) return {}
   const parsed: unknown = JSON.parse(fs.readFileSync(CLAUDE_SETTINGS, 'utf-8'))
   return isJsonObject(parsed) ? (parsed as ClaudeSettings) : {}
 }
 
+// reduce hook command states into a simple installed boolean map for the ui
 function getInstalledHooks(states: Record<RequiredHookEvent, HookCommandState>): Record<RequiredHookEvent, boolean> {
   return Object.fromEntries(
     REQUIRED_HOOK_EVENTS.map((eventName) => [eventName, states[eventName] === 'current']),
   ) as Record<RequiredHookEvent, boolean>
 }
 
+// inspect every managed hook slot and label it current missing or invalid
 function getHookCommandStates(settings: ClaudeSettings): Record<RequiredHookEvent, HookCommandState> {
   const hooks = isJsonObject(settings.hooks) ? settings.hooks : {}
   return Object.fromEntries(
@@ -506,6 +522,7 @@ function getHookCommandStates(settings: ClaudeSettings): Record<RequiredHookEven
   ) as Record<RequiredHookEvent, HookCommandState>
 }
 
+// decide whether the commands for one hook event are missing current or stale
 function getHookCommandState(entries: ClaudeHookMatcher[], eventName: RequiredHookEvent): HookCommandState {
   const commands = extractHookCommands(entries).filter((command) => isManagedHookCommand(command, eventName))
 
@@ -517,6 +534,7 @@ function getHookCommandState(entries: ClaudeHookMatcher[], eventName: RequiredHo
   return 'invalid'
 }
 
+// flatten command-type hook entries so command matching stays simple
 function extractHookCommands(entries: ClaudeHookMatcher[]): string[] {
   const commands: string[] = []
   for (const entry of entries) {
@@ -530,20 +548,24 @@ function extractHookCommands(entries: ClaudeHookMatcher[]): string[] {
   return commands
 }
 
+// normalize path separators before comparing shell commands across platforms
 function normalizeCommand(command: string): string {
   return command.replace(/\\/g, '/').trim()
 }
 
+// recognize any takoyaki-owned command for one event even if it is stale
 function isManagedHookCommand(command: string, eventName: RequiredHookEvent): boolean {
   const normalized = normalizeCommand(command)
   return normalized.includes(`--event ${eventName}`) && normalized.includes('takoyaki-notify.js')
 }
 
+// match only the exact command string takoyaki currently wants to install
 function isCurrentHookCommand(command: string, eventName: RequiredHookEvent): boolean {
   const normalized = normalizeCommand(command)
   return normalized.includes(normalizeCommand(NOTIFY_SCRIPT)) && normalized.includes(`--event ${eventName}`)
 }
 
+// read the current socket address if takoyaki has already started its rpc server
 function readSocketAddress(): string | null {
   try {
     if (!fs.existsSync(SOCKET_ADDR_FILE)) return null
@@ -554,17 +576,20 @@ function readSocketAddress(): string | null {
   }
 }
 
+// build the shell command claude should run for one hook event
 function buildHookCommand(eventName: RequiredHookEvent): string {
   const runner = resolveNodeExecutable()
   const notifyPath = process.platform === 'win32' ? NOTIFY_SCRIPT.replace(/\\/g, '/') : NOTIFY_SCRIPT
   return `${quoteCommandSegment(runner || 'node')} ${quoteCommandSegment(notifyPath)} --event ${eventName}`
 }
 
+// quote command segments so the generated hook survives paths with spaces
 function quoteCommandSegment(value: string): string {
   if (!/[\s"]/u.test(value)) return value
   return `"${value.replace(/"/g, '\\"')}"`
 }
 
+// resolve a stable node executable path for generated hook commands and tests
 function resolveNodeExecutable(): string | null {
   if (cachedNodeExecutable !== undefined) return cachedNodeExecutable
 

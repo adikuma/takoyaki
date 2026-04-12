@@ -76,7 +76,6 @@ describe('TerminalManager', () => {
       terminalId: info.id,
       cwd: info.cwd,
       title: null,
-      recentCommand: null,
       cols: 120,
       rows: 30,
       status: 'running',
@@ -133,7 +132,7 @@ describe('TerminalManager', () => {
     expect(metadataEvent.title).toBe('Codex - Takoyaki')
   })
 
-  it('tracks the most recent submitted command as terminal metadata', () => {
+  it('does not emit metadata from submitted terminal input', () => {
     const events: TerminalEvent[] = []
     tm.on('event', (event: TerminalEvent) => {
       events.push(event)
@@ -143,11 +142,8 @@ describe('TerminalManager', () => {
     expect(tm.write(info.id, 'codex --continue\r')).toBe(true)
 
     const snapshot = tm.open(info.id)
-    expect(snapshot?.recentCommand).toBe('codex --continue')
-
-    const metadataEvent = events.at(-1)
-    if (!metadataEvent || metadataEvent.type !== 'metadata') throw new Error('expected metadata event')
-    expect(metadataEvent.recentCommand).toBe('codex --continue')
+    expect(snapshot?.title).toBeNull()
+    expect(events.at(-1)?.type).toBe('started')
   })
 
   it('emits ordered started output and exited events', async () => {

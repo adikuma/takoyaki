@@ -6,6 +6,7 @@ export function getActiveProjectId(activeWorkspace: Pick<Workspace, 'id' | 'pare
   return activeWorkspace.parentProjectId || activeWorkspace.id
 }
 
+// only projects with git enabled should show project level git actions
 export function canUseProjectGitActions(workspace: Pick<Workspace, 'kind' | 'gitEnabled'>): boolean {
   return workspace.kind === 'project' && Boolean(workspace.gitEnabled)
 }
@@ -19,10 +20,12 @@ export function getProjectBranchLabel(workspace: Pick<Workspace, 'gitEnabled' | 
 export const TASK_TITLE_REQUIRED_ERROR = 'Task name is required.'
 export const TASK_BRANCH_REQUIRED_ERROR = 'Branch name is required.'
 
+// validate the task title before the modal submits to main
 export function getTaskTitleValidationError(taskTitle: string): string | null {
   return taskTitle.trim() ? null : TASK_TITLE_REQUIRED_ERROR
 }
 
+// validate the explicit branch name before the modal submits to main
 export function getTaskBranchValidationError(branchName: string): string | null {
   return branchName.trim() ? null : TASK_BRANCH_REQUIRED_ERROR
 }

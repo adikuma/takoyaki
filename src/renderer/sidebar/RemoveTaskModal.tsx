@@ -14,6 +14,7 @@ interface RemoveTaskModalProps {
   onConfirm: (taskId: string, force: boolean) => void
 }
 
+// confirm task removal and surface the force remove retry path for dirty worktrees
 export function RemoveTaskModal({ task, busy, onClose, onConfirm }: RemoveTaskModalProps) {
   if (!task) return null
 

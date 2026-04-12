@@ -12,35 +12,31 @@ import { collectLeaves, collectWorkspaceTerminals, equalTerminalFrames } from '.
 import { resolvePaneLabels } from './pane-labels'
 import type { PaneTree, TerminalMetadata, WorkspaceSnapshot } from './types'
 
+// normalizes terminal snapshots into the lighter metadata shape the app caches
 function snapshotToTerminalMetadata(snapshot: {
   terminalId: string
   cwd: string
   title: string | null
-  recentCommand: string | null
   updatedAt: string
 }): TerminalMetadata {
   return {
     terminalId: snapshot.terminalId,
     cwd: snapshot.cwd,
     title: snapshot.title,
-    recentCommand: snapshot.recentCommand,
     updatedAt: snapshot.updatedAt,
   }
 }
 
+// avoids rerender churn when a metadata event repeats the same tracked values
 function sameTerminalMetadata(
   first: TerminalMetadata | undefined,
   second: TerminalMetadata | null | undefined,
 ): boolean {
   if (!first || !second) return false
-  return (
-    first.cwd === second.cwd &&
-    first.title === second.title &&
-    first.recentCommand === second.recentCommand &&
-    first.updatedAt === second.updatedAt
-  )
+  return first.cwd === second.cwd && first.title === second.title && first.updatedAt === second.updatedAt
 }
 
+// marks where a rendered pane leaf lives so the stage can measure it later
 function PaneSlot({ surfaceId }: { surfaceId: string }) {
   return <div className="h-full w-full min-h-0" data-surface-slot={surfaceId} />
 }
@@ -68,6 +64,7 @@ function EmptyState() {
   return <div className="flex-1" />
 }
 
+// gives empty workspaces a lightweight way to open the first pane
 function EmptyWorkspaceToolbar({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="absolute right-3 top-3 z-[5] flex items-center" style={{ pointerEvents: 'auto' }}>
@@ -107,6 +104,7 @@ function EmptyWorkspaceToolbar({ workspaceId }: { workspaceId: string }) {
   )
 }
 
+// owns the renderer shell and keeps workspace state, pane layout, and review mode in sync
 export function App() {
   const workspaces = useStore((s) => s.workspaces)
   const activeId = useStore((s) => s.activeWorkspaceId)
@@ -160,16 +158,19 @@ export function App() {
     [paneLeaves, surfaceStatuses, terminalMetadataById, terminalViews],
   )
 
+  // remembers the latest tree for each workspace so panes survive workspace switching
   const rememberTree = useCallback((workspaceId: string | null, nextTree: PaneTree | null) => {
     if (!workspaceId) return
     setWorkspaceTrees((current) => ({ ...current, [workspaceId]: nextTree }))
   }, [])
 
+  // restores the saved theme before the app does its first visible paint
   useEffect(() => {
     const saved = localStorage.getItem('takoyaki-theme')
     if (saved === 'light') document.documentElement.dataset.theme = 'light'
   }, [])
 
+  // lets the titlebar open settings without threading that handler through every layer
   useEffect(() => {
     window.takoyakiOpenSettings = () => setSettingsOpen(true)
     return () => {
@@ -177,6 +178,7 @@ export function App() {
     }
   }, [])
 
+  // hydrates the initial workspace snapshot and then keeps the renderer synced with main process changes
   useEffect(() => {
     if (!window.takoyaki) return
     let disposed = false
@@ -210,6 +212,7 @@ export function App() {
     }
   }, [rememberTree])
 
+  // lazily loads trees for workspaces that become active after the initial snapshot
   useEffect(() => {
     if (!activeId || workspaceTrees[activeId] !== undefined || !window.takoyaki?.workspace) return
     let disposed = false
@@ -227,6 +230,7 @@ export function App() {
     }
   }, [activeId, workspaceTrees])
 
+  // drops cached trees for workspaces that no longer exist
   useEffect(() => {
     setWorkspaceTrees((current) => {
       const validIds = new Set(workspaces.map((workspace) => workspace.id))
@@ -236,6 +240,7 @@ export function App() {
     })
   }, [workspaces])
 
+  // keeps terminal metadata scoped to the terminals that are still part of the active stage
   useEffect(() => {
     const validTerminalIds = new Set(terminalViews.map((terminal) => terminal.terminalId))
     setTerminalMetadataById((current) => {
@@ -262,21 +267,25 @@ export function App() {
     }
   }, [terminalViews])
 
+  // loads persisted pin state once and lets the store own future updates
   useEffect(() => {
     // load sidebar preferences once and let the store keep the renderer copy in sync
     void loadPinnedProjects()
   }, [loadPinnedProjects])
 
+  // loads editor preference state once at startup
   useEffect(() => {
     void loadEditorState()
   }, [loadEditorState])
 
+  // switches the app into narrow layout mode when the window crosses the responsive breakpoint
   useEffect(() => {
     const onResize = () => setIsNarrowLayout(window.innerWidth < 900)
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  // closes the drawer whenever the layout or active workspace makes the drawer stale
   useEffect(() => {
     if (!isNarrowLayout) {
       setSidebarDrawerOpen(false)
@@ -285,10 +294,12 @@ export function App() {
     if (activeId) setSidebarDrawerOpen(false)
   }, [activeId, isNarrowLayout])
 
+  // forces the drawer shut while review focus mode hides sidebar chrome
   useEffect(() => {
     if (hideSidebar) setSidebarDrawerOpen(false)
   }, [hideSidebar])
 
+  // keeps a visible surface selected even when focus or the pane tree changes underneath it
   useEffect(() => {
     if (!paneLeaves.length) {
       setActiveVisibleSurfaceId(null)
@@ -303,12 +314,14 @@ export function App() {
     }
   }, [activeVisibleSurfaceId, focusedSurfaceId, paneLeaves])
 
+  // exits review mode if the reviewed workspace disappears from the workspace list
   useEffect(() => {
     if (activeView !== 'review' || !reviewWorkspaceId) return
     if (workspaces.some((workspace) => workspace.id === reviewWorkspaceId)) return
     closeReview()
   }, [activeView, closeReview, reviewWorkspaceId, workspaces])
 
+  // mirrors claude hook status events into the zustand store
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.status.onChange((statuses) => {
@@ -317,6 +330,7 @@ export function App() {
     return cleanup
   }, [])
 
+  // keeps terminal titles and cwd metadata live as terminals start and emit metadata events
   useEffect(() => {
     if (!window.takoyaki?.terminal) return
     const cleanup = window.takoyaki.terminal.onEvent((event) => {
@@ -325,7 +339,6 @@ export function App() {
           terminalId: event.terminalId,
           cwd: event.cwd,
           title: event.title,
-          recentCommand: event.recentCommand,
           updatedAt: event.createdAt,
         })
         setTerminalMetadataById((current) => {
@@ -346,6 +359,7 @@ export function App() {
     return cleanup
   }, [])
 
+  // mirrors workspace activity updates into the renderer store
   useEffect(() => {
     if (!window.takoyaki?.activity) return
     void window.takoyaki.activity.get().then((data) => {
@@ -357,6 +371,7 @@ export function App() {
     return cleanup
   }, [])
 
+  // shows a short toast after the session is saved
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.session.onSaved(() => {
@@ -365,6 +380,7 @@ export function App() {
     return cleanup
   }, [showToast])
 
+  // surfaces claude completion and failure events as lightweight toasts
   useEffect(() => {
     if (!window.takoyaki?.toast) return
     const cleanup = window.takoyaki.toast.onAgentEvent((event) => {
@@ -381,6 +397,7 @@ export function App() {
     return cleanup
   }, [showToast])
 
+  // routes the global sidebar shortcut to either the drawer or the desktop sidebar
   useEffect(() => {
     if (!window.takoyaki) return
     const cleanup = window.takoyaki.onShortcut((action: string) => {
@@ -392,6 +409,7 @@ export function App() {
     return cleanup
   }, [isNarrowLayout, toggleSidebar])
 
+  // binds ctrl tab cycling so visible workspace navigation works outside the native menu system
   useEffect(() => {
     if (!window.takoyaki?.workspace) return
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -407,6 +425,7 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [])
 
+  // measures rendered pane slots after layout so floating terminal surfaces can be positioned accurately
   useLayoutEffect(() => {
     const viewport = terminalViewportRef.current
     if (!viewport) {

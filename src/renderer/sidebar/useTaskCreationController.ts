@@ -18,6 +18,7 @@ export function useTaskCreationController() {
   const taskTitleRef = useRef<HTMLInputElement>(null)
   const taskBranchNameRef = useRef<HTMLInputElement>(null)
 
+  // reset modal state and load base branches every time a project opens the task dialog
   useEffect(() => {
     if (!taskModalProjectId) return
     setTaskTitle('')
@@ -37,14 +38,17 @@ export function useTaskCreationController() {
     setTimeout(() => taskTitleRef.current?.focus(), 40)
   }, [taskModalProjectId])
 
+  // open the task modal for one project at a time
   const openTaskModal = (projectId: string) => {
     setTaskModalProjectId(projectId)
   }
 
+  // clear the modal by removing the active project id
   const closeTaskModal = () => {
     setTaskModalProjectId(null)
   }
 
+  // clear only the required field error once the title becomes valid again
   const setTaskTitleValue = (nextTitle: string) => {
     setTaskTitle(nextTitle)
     if (taskCreateError === TASK_TITLE_REQUIRED_ERROR && nextTitle.trim()) {
@@ -52,6 +56,7 @@ export function useTaskCreationController() {
     }
   }
 
+  // clear only the required field error once the branch name becomes valid again
   const setTaskBranchNameValue = (nextBranchName: string) => {
     setTaskBranchName(nextBranchName)
     if (taskCreateError === TASK_BRANCH_REQUIRED_ERROR && nextBranchName.trim()) {
@@ -59,6 +64,7 @@ export function useTaskCreationController() {
     }
   }
 
+  // validate locally first and then hand the request to the main process create task flow
   const createTask = async () => {
     if (!taskModalProjectId) return
     const taskTitleValidationError = getTaskTitleValidationError(taskTitle)
