@@ -60,7 +60,7 @@ export class RpcHandler {
 
     switch (req.method) {
       case 'system.capabilities':
-        return ok(req.id, { name: 'takoyaki', version: '0.1.2', capabilities: ['workspace', 'surface'] })
+        return ok(req.id, { name: 'takoyaki', version: '0.1.3', capabilities: ['workspace', 'surface'] })
 
       case 'workspace.list':
         return ok(

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
 
+## [0.1.3] - 2026-04-12
+
+### Changed
+- Aligned child task rows with the same ambient hover and active wash used by parent project rows
+
+### Fixed
+- Added a little more separation between project and task cards so their hover surfaces no longer clash
+
 ## [0.1.2] - 2026-04-12
 
 ### Added
