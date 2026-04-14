@@ -154,7 +154,7 @@ interface PreloadReviewPatch {
 
 type PreloadEditorKind = 'cursor' | 'vscode' | 'zed' | 'explorer'
 type PreloadEditorLaunchTarget = 'preferred' | PreloadEditorKind
-type PreloadShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects'
+type PreloadShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects' | 'toggle-pane-focus'
 
 // each invoke sends a message to main and awaits the response
 // each on listener subscribes to events from main and returns a cleanup function

@@ -60,6 +60,7 @@ interface MuxStore {
   reviewSnapshots: Record<string, ReviewSnapshot | undefined>
   reviewPatches: Record<string, Record<string, ReviewPatch | undefined> | undefined>
   reviewFocusMode: boolean
+  paneFocusSurfaceId: string | null
   reviewLoading: boolean
   reviewPatchLoading: boolean
   reviewError: string | null
@@ -68,6 +69,9 @@ interface MuxStore {
   refreshReview: () => Promise<void>
   selectReviewFile: (filePath: string) => Promise<void>
   toggleReviewFocusMode: () => void
+  togglePaneFocusMode: (surfaceId: string) => void
+  setPaneFocusSurfaceId: (surfaceId: string | null) => void
+  clearPaneFocusMode: () => void
 }
 
 export const useStore = create<MuxStore>((set, get) => ({
@@ -99,6 +103,7 @@ export const useStore = create<MuxStore>((set, get) => ({
       reviewWorkspaceId: null,
       selectedReviewFilePath: null,
       reviewFocusMode: false,
+      paneFocusSurfaceId: null,
     })
     await api.workspace.select(id)
   },
@@ -192,6 +197,7 @@ export const useStore = create<MuxStore>((set, get) => ({
   reviewSnapshots: {},
   reviewPatches: {},
   reviewFocusMode: false,
+  paneFocusSurfaceId: null,
   reviewLoading: false,
   reviewPatchLoading: false,
   reviewError: null,
@@ -206,6 +212,7 @@ export const useStore = create<MuxStore>((set, get) => ({
       reviewLoading: true,
       reviewPatchLoading: false,
       reviewFocusMode: false,
+      paneFocusSurfaceId: null,
       reviewError: null,
     })
     await api.workspace.select(workspaceId)
@@ -248,6 +255,7 @@ export const useStore = create<MuxStore>((set, get) => ({
       reviewWorkspaceId: null,
       selectedReviewFilePath: null,
       reviewFocusMode: false,
+      paneFocusSurfaceId: null,
       reviewLoading: false,
       reviewPatchLoading: false,
       reviewError: null,
@@ -331,4 +339,10 @@ export const useStore = create<MuxStore>((set, get) => ({
   },
 
   toggleReviewFocusMode: () => set((state) => ({ reviewFocusMode: !state.reviewFocusMode })),
+  togglePaneFocusMode: (surfaceId) =>
+    set((state) => ({
+      paneFocusSurfaceId: state.paneFocusSurfaceId === surfaceId ? null : surfaceId,
+    })),
+  setPaneFocusSurfaceId: (surfaceId) => set({ paneFocusSurfaceId: surfaceId }),
+  clearPaneFocusMode: () => set({ paneFocusSurfaceId: null }),
 }))

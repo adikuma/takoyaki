@@ -10,7 +10,7 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { ChevronDown, ChevronUp, Columns2, Rows2, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Columns2, Maximize2, Minimize2, Rows2, X } from 'lucide-react'
 import { button, getTerminalTheme, fonts, colors, sizes } from './design'
 import type { TerminalEvent, TerminalRuntimeInfo, TerminalSnapshot } from './types'
 import type { TerminalFrame } from './terminal-layout'
@@ -80,7 +80,9 @@ interface Props {
   fontSize: number
   frame: TerminalFrame | null
   paneLabel?: string | null
+  isPaneFocusMode?: boolean
   isFocused?: boolean
+  onTogglePaneFocusMode?: () => void
 }
 
 // keep pane actions minimal while still exposing hover affordances and tooltips
@@ -130,7 +132,16 @@ function PaneToolbarButton({
 }
 
 // render one live xterm instance and keep it in sync with backend snapshots and events
-export function Terminal({ surfaceId, terminalId, fontSize, frame, paneLabel, isFocused }: Props) {
+export function Terminal({
+  surfaceId,
+  terminalId,
+  fontSize,
+  frame,
+  paneLabel,
+  isPaneFocusMode = false,
+  isFocused,
+  onTogglePaneFocusMode,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -725,6 +736,18 @@ export function Terminal({ surfaceId, terminalId, fontSize, frame, paneLabel, is
             <PaneToolbarButton label="Split down" onClick={handleSplitDown}>
               <Rows2 size={sizes.iconSm} strokeWidth={1.8} />
             </PaneToolbarButton>
+            {onTogglePaneFocusMode && (
+              <PaneToolbarButton
+                label={isPaneFocusMode ? 'Exit focus mode' : 'Enter focus mode'}
+                onClick={onTogglePaneFocusMode}
+              >
+                {isPaneFocusMode ? (
+                  <Minimize2 size={sizes.iconSm} strokeWidth={1.8} />
+                ) : (
+                  <Maximize2 size={sizes.iconSm} strokeWidth={1.8} />
+                )}
+              </PaneToolbarButton>
+            )}
             <PaneToolbarButton label="Close pane" onClick={handleClosePane}>
               <X size={sizes.iconSm} strokeWidth={1.8} />
             </PaneToolbarButton>
