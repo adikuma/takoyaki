@@ -37,24 +37,24 @@ function sameTerminalMetadata(
 }
 
 // marks where a rendered pane leaf lives so the stage can measure it later
-function PaneSlot({ surfaceId }: { surfaceId: string }) {
-  return <div className="h-full w-full min-h-0" data-surface-slot={surfaceId} />
+function PaneSlot({ surfaceId, measurable = true }: { surfaceId: string; measurable?: boolean }) {
+  return <div className="h-full w-full min-h-0" data-surface-slot={measurable ? surfaceId : undefined} />
 }
 
 // the tree only describes layout and never owns the terminal instances
-function PaneLayout({ tree }: { tree: PaneTree }) {
+function PaneLayout({ tree, measurable = true }: { tree: PaneTree; measurable?: boolean }) {
   if (tree.type === 'leaf') {
-    return <PaneSlot surfaceId={tree.surfaceId} />
+    return <PaneSlot surfaceId={tree.surfaceId} measurable={measurable} />
   }
 
   return (
     <PanelGroup direction={tree.direction}>
       <Panel minSize={15}>
-        <PaneLayout tree={tree.first} />
+        <PaneLayout tree={tree.first} measurable={measurable} />
       </Panel>
       <PanelResizeHandle className="split-handle" data-direction={tree.direction} />
       <Panel minSize={15}>
-        <PaneLayout tree={tree.second} />
+        <PaneLayout tree={tree.second} measurable={measurable} />
       </Panel>
     </PanelGroup>
   )
@@ -118,7 +118,11 @@ export function App() {
   const activeView = useStore((s) => s.activeView)
   const reviewWorkspaceId = useStore((s) => s.reviewWorkspaceId)
   const reviewFocusMode = useStore((s) => s.reviewFocusMode)
+  const paneFocusSurfaceId = useStore((s) => s.paneFocusSurfaceId)
   const closeReview = useStore((s) => s.closeReview)
+  const togglePaneFocusMode = useStore((s) => s.togglePaneFocusMode)
+  const setPaneFocusSurfaceId = useStore((s) => s.setPaneFocusSurfaceId)
+  const clearPaneFocusMode = useStore((s) => s.clearPaneFocusMode)
   const activeWorkspace = workspaces.find((workspace) => workspace.id === activeId) || null
   const reviewWorkspace = workspaces.find((workspace) => workspace.id === reviewWorkspaceId) || null
   const hideSidebar = activeView === 'review' && reviewFocusMode
@@ -148,6 +152,10 @@ export function App() {
       paneLeaves[0]
     )
   }, [activeVisibleSurfaceId, focusedSurfaceId, paneLeaves])
+  const paneFocusLeaf = useMemo(() => {
+    if (!paneFocusSurfaceId) return null
+    return paneLeaves.find((leaf) => leaf.surfaceId === paneFocusSurfaceId) || null
+  }, [paneFocusSurfaceId, paneLeaves])
   // build the persistent terminal stage from cached trees so pane churn does not recreate xterm
   const terminalViews = useMemo(
     () => collectWorkspaceTerminals(workspaces, workspaceTrees),
@@ -156,6 +164,16 @@ export function App() {
   const paneLabels = useMemo(
     () => resolvePaneLabels({ paneLeaves, terminalViews, surfaceStatuses, terminalMetadataById }),
     [paneLeaves, surfaceStatuses, terminalMetadataById, terminalViews],
+  )
+
+  // keep icon and shortcut toggles on the same focus-mode path
+  const togglePaneFocusForSurface = useCallback(
+    (surfaceId: string) => {
+      setActiveVisibleSurfaceId(surfaceId)
+      togglePaneFocusMode(surfaceId)
+      void window.takoyaki?.surface.focus(surfaceId)
+    },
+    [togglePaneFocusMode],
   )
 
   // remembers the latest tree for each workspace so panes survive workspace switching
@@ -314,6 +332,28 @@ export function App() {
     }
   }, [activeVisibleSurfaceId, focusedSurfaceId, paneLeaves])
 
+  // when pane focus mode is active, follow real focus changes from main so the visible pane stays in sync
+  useEffect(() => {
+    if (!paneFocusSurfaceId || !focusedSurfaceId) return
+    if (focusedSurfaceId === paneFocusSurfaceId) return
+    if (!paneLeaves.some((leaf) => leaf.surfaceId === focusedSurfaceId)) return
+    setActiveVisibleSurfaceId(focusedSurfaceId)
+    setPaneFocusSurfaceId(focusedSurfaceId)
+  }, [focusedSurfaceId, paneFocusSurfaceId, paneLeaves, setPaneFocusSurfaceId])
+
+  // clear pane focus mode whenever the focused pane disappears or the workspace changes underneath it
+  useEffect(() => {
+    if (!paneFocusSurfaceId) return
+    if (paneLeaves.some((leaf) => leaf.surfaceId === paneFocusSurfaceId)) return
+    clearPaneFocusMode()
+  }, [clearPaneFocusMode, paneFocusSurfaceId, paneLeaves])
+
+  // keep pane focus mode scoped to terminal view only
+  useEffect(() => {
+    if (activeView === 'terminal' || !paneFocusSurfaceId) return
+    clearPaneFocusMode()
+  }, [activeView, clearPaneFocusMode, paneFocusSurfaceId])
+
   // exits review mode if the reviewed workspace disappears from the workspace list
   useEffect(() => {
     if (activeView !== 'review' || !reviewWorkspaceId) return
@@ -397,17 +437,32 @@ export function App() {
     return cleanup
   }, [showToast])
 
-  // routes the global sidebar shortcut to either the drawer or the desktop sidebar
+  // routes global shortcuts through the current renderer state and the latest workspace focus
   useEffect(() => {
-    if (!window.takoyaki) return
+    if (!window.takoyaki?.workspace) return
+    let disposed = false
+
     const cleanup = window.takoyaki.onShortcut((action: string) => {
       if (action === 'toggle-sidebar') {
         if (isNarrowLayout) setSidebarDrawerOpen((open) => !open)
         else toggleSidebar()
+        return
+      }
+
+      if (action === 'toggle-pane-focus' && activeView === 'terminal') {
+        void window.takoyaki.workspace.current().then((current) => {
+          if (disposed) return
+          const currentFocusedSurfaceId = current?.focusedSurfaceId
+          if (!currentFocusedSurfaceId) return
+          togglePaneFocusForSurface(currentFocusedSurfaceId)
+        })
       }
     })
-    return cleanup
-  }, [isNarrowLayout, toggleSidebar])
+    return () => {
+      disposed = true
+      cleanup()
+    }
+  }, [activeView, isNarrowLayout, togglePaneFocusForSurface, toggleSidebar])
 
   // binds ctrl tab cycling so visible workspace navigation works outside the native menu system
   useEffect(() => {
@@ -473,11 +528,11 @@ export function App() {
       observer.disconnect()
       window.removeEventListener('resize', schedule)
     }
-  }, [activeId, activeVisibleSurfaceId, activeView, isNarrowLayout, tree])
+  }, [activeId, activeVisibleSurfaceId, activeView, isNarrowLayout, paneFocusSurfaceId, tree])
 
   const renderTerminalStage = (narrow: boolean) => (
     <div className="relative flex-1 overflow-hidden flex flex-col">
-      {narrow && paneLeaves.length > 1 && (
+      {narrow && paneLeaves.length > 1 && !paneFocusLeaf && (
         <div
           className="flex items-center gap-1 overflow-x-auto px-3 pt-2 shrink-0"
           style={{ borderBottom: `1px solid ${colors.separator}` }}
@@ -515,10 +570,28 @@ export function App() {
 
       <div ref={terminalViewportRef} className="relative flex-1 overflow-hidden">
         {activeWorkspace && tree ? (
-          narrow && visibleLeaf ? (
+          narrow && paneFocusLeaf ? (
+            <PaneSlot surfaceId={paneFocusLeaf.surfaceId} />
+          ) : narrow && visibleLeaf ? (
             <PaneSlot surfaceId={visibleLeaf.surfaceId} />
           ) : !narrow ? (
-            <PaneLayout tree={tree} />
+            <>
+              <div
+                className="absolute inset-0"
+                style={{
+                  visibility: paneFocusLeaf ? 'hidden' : 'visible',
+                  pointerEvents: paneFocusLeaf ? 'none' : 'auto',
+                }}
+                aria-hidden={paneFocusLeaf ? true : undefined}
+              >
+                <PaneLayout tree={tree} measurable={!paneFocusLeaf} />
+              </div>
+              {paneFocusLeaf && (
+                <div className="absolute inset-0">
+                  <PaneSlot surfaceId={paneFocusLeaf.surfaceId} />
+                </div>
+              )}
+            </>
           ) : (
             <EmptyState />
           )
@@ -543,12 +616,14 @@ export function App() {
                 fontSize={terminal.fontSize}
                 frame={frame}
                 paneLabel={paneLabels[terminal.surfaceId] || null}
+                isPaneFocusMode={paneFocusSurfaceId === terminal.surfaceId}
                 isFocused={Boolean(
                   frame &&
                   activeView === 'terminal' &&
                   terminal.workspaceId === activeId &&
                   terminal.surfaceId === focusedSurfaceId,
                 )}
+                onTogglePaneFocusMode={() => togglePaneFocusForSurface(terminal.surfaceId)}
               />
             )
           })}

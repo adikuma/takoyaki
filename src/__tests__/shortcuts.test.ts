@@ -22,6 +22,16 @@ describe('matchTakoyakiShortcut', () => {
         metaKey: false,
       }),
     ).toEqual({ kind: 'split', direction: 'vertical' })
+
+    expect(
+      matchTakoyakiShortcut({
+        key: 'Enter',
+        shiftKey: true,
+        altKey: false,
+        ctrlKey: true,
+        metaKey: false,
+      }),
+    ).toEqual({ kind: 'shortcut', action: 'toggle-pane-focus' })
   })
 
   it('keeps raw ctrl letter combos out of the app shortcut map', () => {

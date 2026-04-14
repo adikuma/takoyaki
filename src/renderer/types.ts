@@ -215,7 +215,7 @@ export interface ReviewPatch {
   detail: string | null
 }
 
-export type ShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects'
+export type ShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects' | 'toggle-pane-focus'
 
 // just declaring that these methods exist on window.takoyaki as well
 declare global {

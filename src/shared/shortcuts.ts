@@ -6,7 +6,7 @@ export interface ShortcutInput {
   metaKey: boolean
 }
 
-export type RoutedShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects'
+export type RoutedShortcutAction = 'toggle-sidebar' | 'find' | 'find-projects' | 'toggle-pane-focus'
 export type FocusDirection = 'left' | 'right' | 'up' | 'down'
 
 export type ShortcutMatch =
@@ -41,6 +41,7 @@ export const shortcutDisplayRows: Array<{ description: string; label: string }> 
   { description: 'Split right', label: 'Ctrl+Shift+D' },
   { description: 'Split down', label: 'Ctrl+Shift+U' },
   { description: 'Close pane', label: 'Ctrl+Shift+W' },
+  { description: 'Toggle pane focus', label: 'Ctrl+Shift+Enter' },
   { description: 'Toggle sidebar', label: 'Ctrl+Shift+B' },
   { description: 'Search terminal', label: 'Ctrl+Shift+L' },
   { description: 'Search projects', label: 'Ctrl+Shift+F' },
@@ -71,6 +72,7 @@ export function matchTakoyakiShortcut(input: ShortcutInput): ShortcutMatch | nul
   if (!input.shiftKey) return null
 
   if (key === 'b') return { kind: 'shortcut', action: 'toggle-sidebar' }
+  if (key === 'enter') return { kind: 'shortcut', action: 'toggle-pane-focus' }
   if (key === 'd') return { kind: 'split', direction: 'horizontal' }
   if (key === 'u') return { kind: 'split', direction: 'vertical' }
   if (key === 'w') return { kind: 'close-pane' }
