@@ -14,6 +14,7 @@ It brings multiple projects, split panes, git worktree tasks, Claude Code hooks,
 - **Claude Code hooks**
 - **Editor integration**
 - **Per-pane terminal zoom**
+- **Pane focus mode**
 - **Pane auto labels**
 - **Project accents**
 - **Dark and light themes**

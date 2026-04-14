@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
 
+## [0.1.4] - 2026-04-14
+
+### Added
+- Pane focus mode with a pane toolbar toggle and the `Ctrl+Shift+Enter` shortcut
+
+### Fixed
+- Kept pane focus mode aligned with real pane focus changes so shortcuts and visible panes stay in sync
+- Preserved resized split ratios when entering and leaving pane focus mode on desktop
+
 ## [0.1.3] - 2026-04-12
 
 ### Changed

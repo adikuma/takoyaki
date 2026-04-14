@@ -62,6 +62,8 @@ Renders as:
 └──────────────┴──────────────┘
 ```
 
+Desktop pane focus mode isolates one surface without unmounting the underlying split tree, so resized panel ratios survive when focus mode is toggled off.
+
 ## State snapshot flow
 
 ```mermaid
