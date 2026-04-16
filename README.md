@@ -1,7 +1,7 @@
 # Takoyaki
 
 Takoyaki is a Windows-first terminal multiplexer for AI coding agents.
-It brings multiple projects, split panes, git worktree tasks, Claude Code hooks, review tools, and editor actions into one desktop app.
+It brings multiple projects, split panes, git worktree tasks, a browser companion, Claude Code hooks, review tools, and editor actions into one desktop app.
 
 
 ## Features
@@ -9,6 +9,7 @@ It brings multiple projects, split panes, git worktree tasks, Claude Code hooks,
 - **Multi-project workspace**
 - **Split panes**
 - **Git worktree tasks**
+- **Browser companion**
 - **Review mode**
 - **Review file tree navigation**
 - **Claude Code hooks**

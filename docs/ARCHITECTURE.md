@@ -8,11 +8,13 @@ graph TB
         App[App.tsx]
         Sidebar[Sidebar.tsx + sidebar/*]
         Terminal[Terminal.tsx / xterm.js]
+        Browser[BrowserPanel.tsx]
         Review[Review.tsx + ReviewTree.tsx]
         Settings[Settings.tsx]
         Store[zustand store]
         App --- Sidebar
         App --- Terminal
+        App --- Browser
         App --- Review
         App --- Settings
         App --- Store
@@ -25,18 +27,21 @@ graph TB
     subgraph Main["Main Process (Node.js)"]
         WM[WorkspaceManager]
         TM[TerminalManager / node-pty]
+        BrowserMain[BrowserPanelController / WebContentsView]
         Hooks[HookSystem]
         Socket[SocketServer / TCP]
         Editor[EditorService]
         Git[GitWorktree]
         WM --- TM
         WM --- Git
+        BrowserMain --- WM
         Hooks --- Socket
     end
 
     Store <-->|ipcRenderer.invoke| Bridge
     Bridge <-->|ipcMain.handle| WM
     Bridge <-->|ipcMain.handle| TM
+    Bridge <-->|ipcMain.handle| BrowserMain
     Bridge <-->|ipcMain.handle| Hooks
     Bridge <-->|ipcMain.handle| Editor
 ```
@@ -63,6 +68,15 @@ Renders as:
 ```
 
 Desktop pane focus mode isolates one surface without unmounting the underlying split tree, so resized panel ratios survive when focus mode is toggled off.
+
+## Browser companion
+
+Takoyaki’s browser is a single global side panel, not a pane and not a tab strip.
+
+- main owns the browser through one lazy `WebContentsView`
+- renderer owns the panel chrome, sizing, and bounds reporting
+- the guest view is created on demand and destroyed on close so it stays cheap when unused
+- explicit user actions can open normal web pages externally, but page-driven non-web launches are blocked
 
 ## State snapshot flow
 

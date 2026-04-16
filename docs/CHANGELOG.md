@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
 
+## [0.2.0] - 2026-04-16
+
+### Added
+- Browser companion panel with a titlebar globe toggle, compact address bar, and embedded browsing inside the workspace shell
+
+### Changed
+- Tightened the browser panel chrome to a calmer single-row utility layout that matches the rest of Takoyaki
+- Aligned browser release-facing docs and marketing surfaces with the shipped feature set
+
+### Fixed
+- Kept Takoyaki shortcuts active while the embedded browser has focus
+- Blocked page-driven external protocol launches from the browser companion
+- Kept loading and error feedback visible above the native browser view
+- Hardened browser teardown and inline URL validation, including rejecting ambiguous inputs like `localhost:3000`
+
 ## [0.1.4] - 2026-04-14
 
 ### Added

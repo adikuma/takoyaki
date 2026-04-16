@@ -24,6 +24,7 @@ See @README.md for the product overview, @docs/ARCHITECTURE.md for subsystem des
 ## Architecture Rules
 
 - the main process is the source of truth for workspace, terminal, review, and hook state
+- the browser companion is a single main-process-managed `WebContentsView`, not a renderer webview
 - `surfaceId` is the pane identity and `terminalId` is the pty identity
 - pane labels may use Claude state, terminal title, and cwd heuristics, but never raw submitted terminal input
 - `opensrc/` is available when dependency internals matter
