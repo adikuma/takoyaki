@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelGroupHandle } from 'react-resizable-panels'
 import { useStore } from './store'
 import { Titlebar } from './Titlebar'
 import { Sidebar } from './Sidebar'
 import { Terminal } from './Terminal'
 import { Settings } from './Settings'
 import { Review } from './Review'
+import { BrowserPanel } from './BrowserPanel'
 import { button, colors, fonts, sizes } from './design'
 import { collectLeaves, collectWorkspaceTerminals, equalTerminalFrames } from './terminal-layout'
 import { resolvePaneLabels } from './pane-labels'
 import type { PaneTree, TerminalMetadata, WorkspaceSnapshot } from './types'
+import { createDefaultBrowserPanelState, type BrowserPanelState } from '../shared/browser'
 
 // normalizes terminal snapshots into the lighter metadata shape the app caches
 function snapshotToTerminalMetadata(snapshot: {
@@ -139,8 +141,12 @@ export function App() {
     Record<string, { top: number; left: number; width: number; height: number }>
   >({})
   const [terminalMetadataById, setTerminalMetadataById] = useState<Record<string, TerminalMetadata>>({})
+  const [browserState, setBrowserState] = useState<BrowserPanelState>(() => createDefaultBrowserPanelState())
+  const [browserPanelSize, setBrowserPanelSize] = useState(32)
   const selectWorkspace = useStore((s) => s.selectWorkspace)
   const terminalViewportRef = useRef<HTMLDivElement>(null)
+  const rootShellRef = useRef<HTMLDivElement>(null)
+  const browserPanelGroupRef = useRef<ImperativePanelGroupHandle>(null)
 
   const tree = activeId ? workspaceTrees[activeId] || null : null
   const paneLeaves = useMemo(() => (tree ? collectLeaves(tree) : []), [tree])
@@ -193,6 +199,25 @@ export function App() {
     window.takoyakiOpenSettings = () => setSettingsOpen(true)
     return () => {
       delete window.takoyakiOpenSettings
+    }
+  }, [])
+
+  // mirrors the browser companion state from main so the titlebar and panel stay in sync
+  useEffect(() => {
+    if (!window.takoyaki?.browser) return
+    let disposed = false
+
+    void window.takoyaki.browser.getState().then((state) => {
+      if (!disposed) setBrowserState(state)
+    })
+
+    const cleanup = window.takoyaki.browser.onStateChange((state) => {
+      if (!disposed) setBrowserState(state)
+    })
+
+    return () => {
+      disposed = true
+      cleanup()
     }
   }, [])
 
@@ -302,6 +327,26 @@ export function App() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  // desktop only for now, so narrow mode closes the browser companion cleanly
+  useEffect(() => {
+    if (!isNarrowLayout || !browserState.visible) return
+    void window.takoyaki?.browser.hide()
+  }, [browserState.visible, isNarrowLayout])
+
+  // keep the browser split mounted so open and close does not remount the workspace shell
+  useEffect(() => {
+    const group = browserPanelGroupRef.current
+    if (!group) return
+
+    if (isNarrowLayout || !browserState.visible) {
+      group.setLayout([100, 0])
+      return
+    }
+
+    const nextBrowserSize = Math.min(Math.max(browserPanelSize, 24), 48)
+    group.setLayout([100 - nextBrowserSize, nextBrowserSize])
+  }, [browserPanelSize, browserState.visible, isNarrowLayout])
 
   // closes the drawer whenever the layout or active workspace makes the drawer stale
   useEffect(() => {
@@ -639,13 +684,22 @@ export function App() {
   )
 
   return (
-    <div className="relative flex flex-col h-screen w-screen overflow-hidden" style={{ background: colors.bg }}>
+    <div
+      ref={rootShellRef}
+      className="relative flex flex-col h-screen w-screen overflow-hidden"
+      style={{ background: colors.bg }}
+    >
       <Titlebar
         narrow={isNarrowLayout && !hideSidebar}
         onToggleSidebar={() => {
           if (hideSidebar) return
           if (isNarrowLayout) setSidebarDrawerOpen((open) => !open)
           else toggleSidebar()
+        }}
+        showBrowserToggle={!isNarrowLayout}
+        browserVisible={browserState.visible}
+        onToggleBrowser={() => {
+          void window.takoyaki?.browser.toggle()
         }}
       />
       <div className="flex flex-1 overflow-hidden">
@@ -664,7 +718,29 @@ export function App() {
         ) : (
           <>
             {!hideSidebar && <Sidebar />}
-            {renderTerminalStage(false)}
+            <PanelGroup ref={browserPanelGroupRef} direction="horizontal" className="flex-1">
+              <Panel minSize={40} defaultSize={browserState.visible ? 100 - browserPanelSize : 100}>
+                {renderTerminalStage(false)}
+              </Panel>
+              <PanelResizeHandle
+                className="split-handle"
+                style={{
+                  opacity: browserState.visible ? 1 : 0,
+                  pointerEvents: browserState.visible ? 'auto' : 'none',
+                }}
+              />
+              <Panel
+                className="min-w-0 overflow-hidden"
+                minSize={browserState.visible ? 24 : 0}
+                maxSize={48}
+                defaultSize={browserState.visible ? browserPanelSize : 0}
+                onResize={(size) => {
+                  if (size > 0) setBrowserPanelSize(size)
+                }}
+              >
+                {browserState.visible ? <BrowserPanel rootRef={rootShellRef} state={browserState} /> : null}
+              </Panel>
+            </PanelGroup>
           </>
         )}
       </div>

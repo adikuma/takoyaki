@@ -1,6 +1,6 @@
 // titlebar: takoyaki / project-name, window controls on right
 
-import { Menu } from 'lucide-react'
+import { Globe, Menu } from 'lucide-react'
 import { useStore } from './store'
 import { colors, sizes } from './design'
 import takoyakiLogo from '../assets/takoyaki-logo.svg?raw'
@@ -8,9 +8,18 @@ import takoyakiLogo from '../assets/takoyaki-logo.svg?raw'
 interface Props {
   narrow?: boolean
   onToggleSidebar?: () => void
+  browserVisible?: boolean
+  onToggleBrowser?: () => void
+  showBrowserToggle?: boolean
 }
 
-export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
+export function Titlebar({
+  narrow = false,
+  onToggleSidebar,
+  browserVisible = false,
+  onToggleBrowser,
+  showBrowserToggle = false,
+}: Props) {
   const theme = useStore((s) => s.theme)
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId)
   const workspaces = useStore((s) => s.workspaces)
@@ -78,6 +87,33 @@ export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
       </div>
 
       <div className="flex-1" />
+
+      {showBrowserToggle && (
+        <div
+          className="no-drag mr-3 flex h-full items-center pr-3"
+          style={{ borderRight: `1px solid ${colors.borderSubtle}` }}
+        >
+          <button
+            type="button"
+            onClick={onToggleBrowser}
+            className="flex h-8 w-8 items-center justify-center rounded-md transition-colors duration-[120ms]"
+            style={{
+              background: 'transparent',
+              color: browserVisible ? colors.accent : colors.textSecondary,
+            }}
+            onMouseEnter={(event) => {
+              event.currentTarget.style.color = browserVisible ? colors.accent : colors.textPrimary
+            }}
+            onMouseLeave={(event) => {
+              event.currentTarget.style.color = browserVisible ? colors.accent : colors.textSecondary
+            }}
+            aria-label={browserVisible ? 'close browser' : 'open browser'}
+            title={browserVisible ? 'Close browser' : 'Open browser'}
+          >
+            <Globe size={sizes.iconSm} strokeWidth={1.85} />
+          </button>
+        </div>
+      )}
 
       <div className="flex h-full no-drag">
         <button

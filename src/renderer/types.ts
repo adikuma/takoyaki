@@ -4,6 +4,7 @@ import type {
   ClaudeSurfaceStatus,
   ManagedClaudeHookEvent,
 } from '../shared/claude-status'
+import type { BrowserPanelBounds, BrowserPanelState } from '../shared/browser'
 
 // domain types
 // workspace is the main unit of organization in the application
@@ -225,6 +226,18 @@ declare global {
       clipboard: {
         readText: () => Promise<string>
         writeText: (text: string) => Promise<void>
+      }
+      browser: {
+        getState: () => Promise<BrowserPanelState>
+        toggle: (url?: string) => Promise<BrowserPanelState>
+        show: (url?: string) => Promise<BrowserPanelState>
+        hide: () => Promise<BrowserPanelState>
+        navigate: (url: string) => Promise<BrowserPanelState>
+        goBack: () => Promise<BrowserPanelState>
+        goForward: () => Promise<BrowserPanelState>
+        reload: () => Promise<BrowserPanelState>
+        setBounds: (bounds: BrowserPanelBounds) => Promise<void>
+        onStateChange: (cb: (state: BrowserPanelState) => void) => () => void
       }
       terminal: {
         create: (cwd?: string) => Promise<{ id: string; pid: number; cwd: string }>
