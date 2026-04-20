@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
 
+## [0.2.0] - 2026-04-20
+
+### Added
+- Browser companion panel with a titlebar toggle, docked native web view, basic navigation controls, and external-open handoff
+- Shared browser url guardrails and unit coverage for embedded navigation rules
+
+### Changed
+- Mounted renderer terminals only for the active workspace so hidden workspaces stop paying the xterm rendering cost
+- Kept the browser as a separate companion layer so it never owns pane layout state
+
+### Fixed
+- Preserved app shortcuts while the browser has focus and returned focus cleanly to the active terminal when the panel closes
+- Kept browser loading and error feedback visible above the native web view host
+
 ## [0.1.4] - 2026-04-14
 
 ### Added

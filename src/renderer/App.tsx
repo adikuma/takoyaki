@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { Plus } from 'lucide-react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { useStore } from './store'
@@ -7,10 +15,18 @@ import { Sidebar } from './Sidebar'
 import { Terminal } from './Terminal'
 import { Settings } from './Settings'
 import { Review } from './Review'
+import { BrowserPanel } from './BrowserPanel'
 import { button, colors, fonts, sizes } from './design'
-import { collectLeaves, collectWorkspaceTerminals, equalTerminalFrames } from './terminal-layout'
+import {
+  MAX_HIDDEN_MOUNTED_WORKSPACES,
+  collectLeaves,
+  collectMountedWorkspaceTerminals,
+  equalTerminalFrames,
+  reconcileMountedWorkspaceIds,
+} from './terminal-layout'
 import { resolvePaneLabels } from './pane-labels'
 import type { PaneTree, TerminalMetadata, WorkspaceSnapshot } from './types'
+import { createDefaultBrowserPanelState, type BrowserPanelState } from '../shared/browser'
 
 // normalizes terminal snapshots into the lighter metadata shape the app caches
 function snapshotToTerminalMetadata(snapshot: {
@@ -106,6 +122,7 @@ function EmptyWorkspaceToolbar({ workspaceId }: { workspaceId: string }) {
 
 // owns the renderer shell and keeps workspace state, pane layout, and review mode in sync
 export function App() {
+  const rootShellRef = useRef<HTMLDivElement>(null)
   const workspaces = useStore((s) => s.workspaces)
   const activeId = useStore((s) => s.activeWorkspaceId)
   const surfaceStatuses = useStore((s) => s.surfaceStatuses)
@@ -135,6 +152,15 @@ export function App() {
   )
   const [sidebarDrawerOpen, setSidebarDrawerOpen] = useState(false)
   const [activeVisibleSurfaceId, setActiveVisibleSurfaceId] = useState<string | null>(null)
+  const [browserState, setBrowserState] = useState<BrowserPanelState>(() => createDefaultBrowserPanelState())
+  const [browserWidth, setBrowserWidth] = useState(420)
+  const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<string[]>([])
+  const [browserResizeState, setBrowserResizeState] = useState<{
+    pointerId: number
+    startX: number
+    startWidth: number
+  } | null>(null)
+  const [terminalFocusRequest, setTerminalFocusRequest] = useState<{ surfaceId: string; token: number } | null>(null)
   const [terminalFrames, setTerminalFrames] = useState<
     Record<string, { top: number; left: number; width: number; height: number }>
   >({})
@@ -156,15 +182,23 @@ export function App() {
     if (!paneFocusSurfaceId) return null
     return paneLeaves.find((leaf) => leaf.surfaceId === paneFocusSurfaceId) || null
   }, [paneFocusSurfaceId, paneLeaves])
-  // build the persistent terminal stage from cached trees so pane churn does not recreate xterm
+  // keep the renderer stage bounded so background workspaces do not leave hidden xterms mounted
   const terminalViews = useMemo(
-    () => collectWorkspaceTerminals(workspaces, workspaceTrees),
-    [workspaces, workspaceTrees],
+    () => collectMountedWorkspaceTerminals(mountedWorkspaceIds, workspaceTrees),
+    [mountedWorkspaceIds, workspaceTrees],
   )
   const paneLabels = useMemo(
     () => resolvePaneLabels({ paneLeaves, terminalViews, surfaceStatuses, terminalMetadataById }),
     [paneLeaves, surfaceStatuses, terminalMetadataById, terminalViews],
   )
+  const browserVisible = browserState.visible && !isNarrowLayout
+
+  // keep the browser width inside a safe desktop-only range
+  const clampBrowserWidth = useCallback((nextWidth: number) => {
+    const minWidth = 360
+    const maxWidth = Math.max(minWidth, Math.min(640, window.innerWidth - 120))
+    return Math.min(Math.max(nextWidth, minWidth), maxWidth)
+  }, [])
 
   // keep icon and shortcut toggles on the same focus-mode path
   const togglePaneFocusForSurface = useCallback(
@@ -187,6 +221,33 @@ export function App() {
     const saved = localStorage.getItem('takoyaki-theme')
     if (saved === 'light') document.documentElement.dataset.theme = 'light'
   }, [])
+
+  // mirror browser controller state into the renderer and restore xterm focus when the browser closes
+  useEffect(() => {
+    if (!window.takoyaki?.browser) return
+    let disposed = false
+
+    void window.takoyaki.browser.getState().then((state) => {
+      if (!disposed) setBrowserState(state)
+    })
+
+    const cleanupState = window.takoyaki.browser.onStateChange((state) => {
+      if (!disposed) setBrowserState(state)
+    })
+
+    const cleanupReturnFocus = window.takoyaki.browser.onReturnFocus((surfaceId) => {
+      if (disposed || !surfaceId || activeView !== 'terminal') return
+      setActiveVisibleSurfaceId(surfaceId)
+      setTerminalFocusRequest({ surfaceId, token: Date.now() })
+      void window.takoyaki.surface.focus(surfaceId)
+    })
+
+    return () => {
+      disposed = true
+      cleanupState()
+      cleanupReturnFocus()
+    }
+  }, [activeView])
 
   // lets the titlebar open settings without threading that handler through every layer
   useEffect(() => {
@@ -258,6 +319,22 @@ export function App() {
     })
   }, [workspaces])
 
+  // keep only the active workspace mounted for now and preserve lru ordering for a future warm cache
+  useEffect(() => {
+    const currentWorkspaceIds = workspaces.map((workspace) => workspace.id)
+    setMountedWorkspaceIds((current) => {
+      const next = reconcileMountedWorkspaceIds({
+        currentWorkspaceIds,
+        currentMountedWorkspaceIds: current,
+        activeWorkspaceId: activeId,
+        maxHiddenWorkspaceCount: MAX_HIDDEN_MOUNTED_WORKSPACES,
+      })
+      return next.length === current.length && next.every((workspaceId, index) => workspaceId === current[index])
+        ? current
+        : next
+    })
+  }, [activeId, workspaces])
+
   // keeps terminal metadata scoped to the terminals that are still part of the active stage
   useEffect(() => {
     const validTerminalIds = new Set(terminalViews.map((terminal) => terminal.terminalId))
@@ -302,6 +379,55 @@ export function App() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  // keep the browser width clamped when the window changes size
+  useEffect(() => {
+    const onResize = () => setBrowserWidth((current) => clampBrowserWidth(current))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [clampBrowserWidth])
+
+  // dragging the browser edge should only resize the overlay and never touch pane layout state
+  useEffect(() => {
+    if (!browserResizeState) return
+
+    const handleMove = (event: PointerEvent) => {
+      if (event.pointerId !== browserResizeState.pointerId) return
+      const delta = browserResizeState.startX - event.clientX
+      setBrowserWidth(clampBrowserWidth(browserResizeState.startWidth + delta))
+    }
+
+    const stopResize = (event: PointerEvent) => {
+      if (event.pointerId !== browserResizeState.pointerId) return
+      setBrowserResizeState(null)
+    }
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', stopResize)
+    window.addEventListener('pointercancel', stopResize)
+
+    return () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', stopResize)
+      window.removeEventListener('pointercancel', stopResize)
+    }
+  }, [browserResizeState, clampBrowserWidth])
+
+  // keep the browser out of narrow layouts where the companion would crowd the shell
+  useEffect(() => {
+    if (!isNarrowLayout || !browserState.visible) return
+    void window.takoyaki?.browser.hide()
+  }, [browserState.visible, isNarrowLayout])
+
+  // keep the browser companion scoped to terminal view so review stays isolated
+  useEffect(() => {
+    if (activeView === 'terminal' || !browserState.visible) return
+    void window.takoyaki?.browser.hide()
+  }, [activeView, browserState.visible])
 
   // closes the drawer whenever the layout or active workspace makes the drawer stale
   useEffect(() => {
@@ -623,6 +749,9 @@ export function App() {
                   terminal.workspaceId === activeId &&
                   terminal.surfaceId === focusedSurfaceId,
                 )}
+                focusRequestKey={
+                  terminalFocusRequest?.surfaceId === terminal.surfaceId ? terminalFocusRequest.token : 0
+                }
                 onTogglePaneFocusMode={() => togglePaneFocusForSurface(terminal.surfaceId)}
               />
             )
@@ -639,9 +768,18 @@ export function App() {
   )
 
   return (
-    <div className="relative flex flex-col h-screen w-screen overflow-hidden" style={{ background: colors.bg }}>
+    <div
+      ref={rootShellRef}
+      className="relative flex flex-col h-screen w-screen overflow-hidden"
+      style={{ background: colors.bg }}
+    >
       <Titlebar
         narrow={isNarrowLayout && !hideSidebar}
+        browserVisible={browserVisible}
+        onToggleBrowser={() => {
+          if (isNarrowLayout || !window.takoyaki?.browser) return
+          void window.takoyaki.browser.toggle(browserState.lastUrl || undefined)
+        }}
         onToggleSidebar={() => {
           if (hideSidebar) return
           if (isNarrowLayout) setSidebarDrawerOpen((open) => !open)
@@ -649,25 +787,53 @@ export function App() {
         }}
       />
       <div className="flex flex-1 overflow-hidden">
-        {isNarrowLayout ? (
-          <>
-            {!hideSidebar && (
-              <Sidebar
-                narrow
-                drawerOpen={sidebarDrawerOpen}
-                onRequestOpen={() => setSidebarDrawerOpen(true)}
-                onRequestClose={() => setSidebarDrawerOpen(false)}
-              />
-            )}
-            {renderTerminalStage(true)}
-          </>
-        ) : (
-          <>
-            {!hideSidebar && <Sidebar />}
-            {renderTerminalStage(false)}
-          </>
-        )}
+        <div className="flex min-w-0 flex-1 overflow-hidden">
+          {isNarrowLayout ? (
+            <>
+              {!hideSidebar && (
+                <Sidebar
+                  narrow
+                  drawerOpen={sidebarDrawerOpen}
+                  onRequestOpen={() => setSidebarDrawerOpen(true)}
+                  onRequestClose={() => setSidebarDrawerOpen(false)}
+                />
+              )}
+              {renderTerminalStage(true)}
+            </>
+          ) : (
+            <>
+              {!hideSidebar && <Sidebar />}
+              {renderTerminalStage(false)}
+            </>
+          )}
+        </div>
+        {browserVisible && <div style={{ width: browserWidth, flexShrink: 0 }} aria-hidden="true" />}
       </div>
+      {browserVisible && (
+        <div className="pointer-events-none absolute inset-0 z-30">
+          <div
+            className="pointer-events-auto absolute bottom-0 right-0"
+            style={{
+              top: sizes.titlebarHeight,
+              width: browserWidth,
+            }}
+          >
+            <BrowserPanel
+              rootRef={rootShellRef}
+              state={browserState}
+              isResizing={Boolean(browserResizeState)}
+              onResizePointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
+                event.preventDefault()
+                setBrowserResizeState({
+                  pointerId: event.pointerId,
+                  startX: event.clientX,
+                  startWidth: browserWidth,
+                })
+              }}
+            />
+          </div>
+        </div>
+      )}
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {toast && (
         <div

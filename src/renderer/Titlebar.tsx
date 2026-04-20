@@ -1,6 +1,6 @@
 // titlebar: takoyaki / project-name, window controls on right
 
-import { Menu } from 'lucide-react'
+import { Globe, Menu } from 'lucide-react'
 import { useStore } from './store'
 import { colors, sizes } from './design'
 import takoyakiLogo from '../assets/takoyaki-logo.svg?raw'
@@ -8,9 +8,11 @@ import takoyakiLogo from '../assets/takoyaki-logo.svg?raw'
 interface Props {
   narrow?: boolean
   onToggleSidebar?: () => void
+  browserVisible?: boolean
+  onToggleBrowser?: () => void
 }
 
-export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
+export function Titlebar({ narrow = false, onToggleSidebar, browserVisible = false, onToggleBrowser }: Props) {
   const theme = useStore((s) => s.theme)
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId)
   const workspaces = useStore((s) => s.workspaces)
@@ -80,6 +82,21 @@ export function Titlebar({ narrow = false, onToggleSidebar }: Props) {
       <div className="flex-1" />
 
       <div className="flex h-full no-drag">
+        <button
+          onClick={onToggleBrowser}
+          className="w-[46px] h-full flex items-center justify-center transition-colors duration-[120ms]"
+          style={{ color: browserVisible ? colors.accent : colors.textGhost }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = browserVisible ? colors.accent : colors.textSecondary
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = browserVisible ? colors.accent : colors.textGhost
+          }}
+          aria-label={browserVisible ? 'close browser' : 'open browser'}
+        >
+          <Globe size={sizes.iconSm} strokeWidth={1.9} />
+        </button>
+        <div className="h-full w-px" style={{ background: colors.separator }} aria-hidden="true" />
         <button
           onClick={() => window.takoyaki?.window.minimize()}
           className="w-[46px] h-full flex items-center justify-center transition-colors duration-[120ms]"

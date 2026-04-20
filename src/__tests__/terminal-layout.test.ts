@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { collectLeaves, collectWorkspaceTerminals, equalTerminalFrames } from '../renderer/terminal-layout'
+import {
+  collectLeaves,
+  collectMountedWorkspaceTerminals,
+  collectWorkspaceTerminals,
+  equalTerminalFrames,
+  reconcileMountedWorkspaceIds,
+} from '../renderer/terminal-layout'
 import type { PaneTree, Workspace } from '../renderer/types'
 
 describe('terminal layout helpers', () => {
@@ -39,6 +45,41 @@ describe('terminal layout helpers', () => {
       { workspaceId: 'project-1', surfaceId: 'surface-b', terminalId: 'terminal-b' },
       { workspaceId: 'project-1', surfaceId: 'surface-c', terminalId: 'terminal-c' },
     ])
+  })
+
+  it('collects terminals only for mounted workspaces', () => {
+    expect(
+      collectMountedWorkspaceTerminals(['project-2', 'project-1'], {
+        'project-1': tree,
+        'project-2': null,
+        'project-3': tree,
+      }),
+    ).toEqual([
+      { workspaceId: 'project-1', surfaceId: 'surface-a', terminalId: 'terminal-a' },
+      { workspaceId: 'project-1', surfaceId: 'surface-b', terminalId: 'terminal-b' },
+      { workspaceId: 'project-1', surfaceId: 'surface-c', terminalId: 'terminal-c' },
+    ])
+  })
+
+  it('reconciles mounted workspaces around the active workspace', () => {
+    expect(
+      reconcileMountedWorkspaceIds({
+        currentWorkspaceIds: ['project-1', 'project-2', 'project-3'],
+        currentMountedWorkspaceIds: ['project-1', 'project-2'],
+        activeWorkspaceId: 'project-3',
+      }),
+    ).toEqual(['project-3'])
+  })
+
+  it('can keep a bounded hidden lru set when the budget is raised later', () => {
+    expect(
+      reconcileMountedWorkspaceIds({
+        currentWorkspaceIds: ['project-1', 'project-2', 'project-3'],
+        currentMountedWorkspaceIds: ['project-1', 'project-2'],
+        activeWorkspaceId: 'project-3',
+        maxHiddenWorkspaceCount: 1,
+      }),
+    ).toEqual(['project-2', 'project-3'])
   })
 
   it('compares terminal frame maps by geometry', () => {

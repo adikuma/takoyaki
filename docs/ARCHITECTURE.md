@@ -9,11 +9,13 @@ graph TB
         Sidebar[Sidebar.tsx + sidebar/*]
         Terminal[Terminal.tsx / xterm.js]
         Review[Review.tsx + ReviewTree.tsx]
+        BrowserPanel[BrowserPanel.tsx]
         Settings[Settings.tsx]
         Store[zustand store]
         App --- Sidebar
         App --- Terminal
         App --- Review
+        App --- BrowserPanel
         App --- Settings
         App --- Store
     end
@@ -25,18 +27,21 @@ graph TB
     subgraph Main["Main Process (Node.js)"]
         WM[WorkspaceManager]
         TM[TerminalManager / node-pty]
+        Browser[BrowserPanelController]
         Hooks[HookSystem]
         Socket[SocketServer / TCP]
         Editor[EditorService]
         Git[GitWorktree]
         WM --- TM
         WM --- Git
+        WM --- Browser
         Hooks --- Socket
     end
 
     Store <-->|ipcRenderer.invoke| Bridge
     Bridge <-->|ipcMain.handle| WM
     Bridge <-->|ipcMain.handle| TM
+    Bridge <-->|ipcMain.handle| Browser
     Bridge <-->|ipcMain.handle| Hooks
     Bridge <-->|ipcMain.handle| Editor
 ```
@@ -120,6 +125,40 @@ sequenceDiagram
     P-->>X: snapshot restore plus ordered terminal events
 ```
 
+## Browser companion flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Renderer
+    participant Preload
+    participant Main as BrowserPanelController
+    participant View as WebContentsView
+
+    User->>Renderer: clicks titlebar globe
+    Renderer->>Preload: window.takoyaki.browser.toggle()
+    Preload->>Main: ipcMain.handle('browser:toggle')
+    Main->>Main: create or show controller state
+    Main->>View: loadURL(target)
+    Main-->>Preload: browser:state-changed
+    Preload-->>Renderer: onStateChange callback
+    Renderer->>Renderer: measure host box and send setBounds()
+    Renderer->>User: browser companion appears beside the shell
+```
+
+The browser stays outside the pane tree. That keeps pane layout, split ratios, and terminal ownership in the workspace manager instead of mixing browser state into the core shell.
+
+## Renderer terminal mounting
+
+```mermaid
+graph LR
+    Active["Active workspace tree"] --> Stage["Mounted xterm views"]
+    Hidden["Hidden workspaces"] --> Cache["Tree cache only"]
+    Cache -. no xterm mount .-> Stage
+```
+
+Takoyaki still caches pane trees for workspace switching, but it only mounts live terminal views for the active workspace. That trims hidden xterm work, reduces renderer pressure, and keeps the shell feeling lighter as more workspaces pile up.
+
 ## Task / worktree model
 
 ```mermaid
@@ -161,6 +200,7 @@ graph LR
         surface["surface<br/>focus"]
         hooks["hooks<br/>install, test, diagnostics"]
         editor["editor<br/>open, preferences, availability"]
+        browser["browser<br/>getState, toggle, show,<br/>hide, navigate, history,<br/>reload, setBounds"]
         status["status<br/>onChange"]
         activity["activity<br/>get, onChange"]
         window["window<br/>minimize, maximize, close"]
@@ -216,10 +256,12 @@ graph TB
         S["socket: 127.0.0.1 only"]
         G["git: execFile with array args"]
         E["editor: PowerShell quoting"]
+        B["browser: http and https only<br/>permission requests denied"]
     end
 
     Sandbox -->|"window.takoyaki.* API only"| Bridge
     Bridge -->|"ipcMain.handle"| Trusted
     S -.->|"no network exposure"| Trusted
     G -.->|"no shell injection"| Trusted
+    B -.->|"no external protocol launch inside panel"| Trusted
 ```

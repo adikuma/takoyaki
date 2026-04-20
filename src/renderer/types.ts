@@ -4,6 +4,7 @@ import type {
   ClaudeSurfaceStatus,
   ManagedClaudeHookEvent,
 } from '../shared/claude-status'
+import type { BrowserPanelBounds, BrowserPanelState } from '../shared/browser'
 
 // domain types
 // workspace is the main unit of organization in the application
@@ -259,6 +260,19 @@ declare global {
       }
       surface: {
         focus: (surfaceId: string) => Promise<boolean>
+      }
+      browser: {
+        getState: () => Promise<BrowserPanelState>
+        toggle: (url?: string) => Promise<BrowserPanelState>
+        show: (url?: string) => Promise<BrowserPanelState>
+        hide: () => Promise<BrowserPanelState>
+        navigate: (url: string) => Promise<BrowserPanelState>
+        goBack: () => Promise<BrowserPanelState>
+        goForward: () => Promise<BrowserPanelState>
+        reload: () => Promise<BrowserPanelState>
+        setBounds: (bounds: BrowserPanelBounds) => Promise<BrowserPanelState>
+        onStateChange: (cb: (state: BrowserPanelState) => void) => () => void
+        onReturnFocus: (cb: (surfaceId: string | null) => void) => () => void
       }
       hooks: {
         shouldShow: () => Promise<boolean>

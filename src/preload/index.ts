@@ -4,6 +4,7 @@
 // types are duplicated here because preload cant import from the renderer
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ClaudeActivityState, ClaudeAttentionState } from '../shared/claude-status'
+import type { BrowserPanelBounds, BrowserPanelState } from '../shared/browser'
 
 interface PreloadWorkspace {
   id: string
@@ -210,6 +211,32 @@ const api = {
   },
   surface: {
     focus: (surfaceId: string) => ipcRenderer.invoke('surface:focus', surfaceId),
+  },
+  browser: {
+    getState: () => ipcRenderer.invoke('browser:get-state') as Promise<BrowserPanelState>,
+    toggle: (url?: string) => ipcRenderer.invoke('browser:toggle', url) as Promise<BrowserPanelState>,
+    show: (url?: string) => ipcRenderer.invoke('browser:show', url) as Promise<BrowserPanelState>,
+    hide: () => ipcRenderer.invoke('browser:hide') as Promise<BrowserPanelState>,
+    navigate: (url: string) => ipcRenderer.invoke('browser:navigate', url) as Promise<BrowserPanelState>,
+    goBack: () => ipcRenderer.invoke('browser:go-back') as Promise<BrowserPanelState>,
+    goForward: () => ipcRenderer.invoke('browser:go-forward') as Promise<BrowserPanelState>,
+    reload: () => ipcRenderer.invoke('browser:reload') as Promise<BrowserPanelState>,
+    setBounds: (bounds: BrowserPanelBounds) =>
+      ipcRenderer.invoke('browser:set-bounds', bounds) as Promise<BrowserPanelState>,
+    onStateChange: (cb: (state: BrowserPanelState) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, state: BrowserPanelState) => cb(state)
+      ipcRenderer.on('browser:state-changed', handler)
+      return () => {
+        ipcRenderer.removeListener('browser:state-changed', handler)
+      }
+    },
+    onReturnFocus: (cb: (surfaceId: string | null) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, surfaceId: string | null) => cb(surfaceId)
+      ipcRenderer.on('browser:return-focus', handler)
+      return () => {
+        ipcRenderer.removeListener('browser:return-focus', handler)
+      }
+    },
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

@@ -1,6 +1,6 @@
 // electron main process entry
 
-import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, dialog, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, nativeTheme, dialog, shell, type WebContents } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { join } from 'path'
@@ -16,6 +16,7 @@ import { getTerminalRuntimeInfo } from './terminal-runtime'
 import { ReviewService } from './review'
 import { removeTaskWorkspaceAndWorktree } from './task-removal'
 import { matchTakoyakiShortcut } from '../shared/shortcuts'
+import { BrowserPanelController } from './browser'
 import {
   shouldShowHooksBanner,
   installHooks,
@@ -35,8 +36,10 @@ import {
   type ClaudeStatusUpdate,
   type ClaudeSurfaceStatus,
 } from '../shared/claude-status'
+import { createDefaultBrowserPanelState, type BrowserPanelBounds } from '../shared/browser'
 
 let mainWindow: BrowserWindow | null = null
+let browserPanel: BrowserPanelController | null = null
 const terminals = new TerminalManager()
 const workspaces = new WorkspaceManager(terminals)
 const rpc = new RpcHandler(workspaces, terminals)
@@ -388,11 +391,88 @@ function createWindow(): void {
     },
   })
 
+  const bindShortcutRouter = (contents: WebContents) => {
+    contents.on('before-input-event', (event, input) => {
+      if (!input.control && !input.meta) return
+      if (input.type !== 'keyDown') return
+
+      const shortcut = matchTakoyakiShortcut({
+        key: input.key,
+        shiftKey: input.shift,
+        altKey: input.alt,
+        ctrlKey: input.control,
+        metaKey: input.meta,
+      })
+
+      if (!shortcut) return
+
+      event.preventDefault()
+
+      if (shortcut.kind === 'shortcut') {
+        send('shortcut', shortcut.action)
+        return
+      }
+
+      if (shortcut.kind === 'split') {
+        workspaces.splitFocused(shortcut.direction)
+        return
+      }
+
+      if (shortcut.kind === 'close-pane') {
+        workspaces.closeFocused()
+        return
+      }
+
+      if (shortcut.kind === 'move-focus') {
+        if (workspaces.moveFocus(shortcut.direction)) noteWorkspaceActivity(workspaces.activeWorkspaceId)
+        return
+      }
+
+      if (shortcut.kind === 'open-project') {
+        void openProjectFolder()
+        return
+      }
+
+      if (shortcut.kind === 'save-session') {
+        workspaces.save()
+        send('session:saved')
+        return
+      }
+
+      if (shortcut.kind === 'jump-project') {
+        const list = workspaces.list().filter((workspace) => workspace.kind === 'project')
+        if (shortcut.index < list.length && workspaces.select(list[shortcut.index].id)) {
+          noteSelection(list[shortcut.index].id)
+        }
+      }
+    })
+  }
+
+  browserPanel = new BrowserPanelController({
+    window: mainWindow,
+    send,
+    bindShortcutRouter,
+    getFocusedSurfaceId: () => workspaces.current()?.focusedSurfaceId || null,
+    restoreSurfaceFocus: (surfaceId) => {
+      if (!surfaceId) return
+      const focused = workspaces.focusSurface(surfaceId)
+      if (!focused) return
+      const workspaceId = workspaces.workspaceIdForSurface(surfaceId)
+      noteWorkspaceActivity(workspaceId)
+    },
+  })
+
   mainWindow.on('ready-to-show', () => {
     // start maximized so the app feels full screen
     // without using exclusive fullscreen mode
     mainWindow?.maximize()
     mainWindow?.show()
+  })
+
+  mainWindow.on('closed', () => {
+    browserPanel?.dispose()
+    browserPanel = null
+    mainWindow = null
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -401,61 +481,8 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // keyboard shortcuts - executed in main process with fresh state
-  mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (!input.control && !input.meta) return
-    if (input.type !== 'keyDown') return
-
-    const shortcut = matchTakoyakiShortcut({
-      key: input.key,
-      shiftKey: input.shift,
-      altKey: input.alt,
-      ctrlKey: input.control,
-      metaKey: input.meta,
-    })
-
-    if (!shortcut) return
-
-    event.preventDefault()
-
-    if (shortcut.kind === 'shortcut') {
-      send('shortcut', shortcut.action)
-      return
-    }
-
-    if (shortcut.kind === 'split') {
-      workspaces.splitFocused(shortcut.direction)
-      return
-    }
-
-    if (shortcut.kind === 'close-pane') {
-      workspaces.closeFocused()
-      return
-    }
-
-    if (shortcut.kind === 'move-focus') {
-      if (workspaces.moveFocus(shortcut.direction)) noteWorkspaceActivity(workspaces.activeWorkspaceId)
-      return
-    }
-
-    if (shortcut.kind === 'open-project') {
-      void openProjectFolder()
-      return
-    }
-
-    if (shortcut.kind === 'save-session') {
-      workspaces.save()
-      send('session:saved')
-      return
-    }
-
-    if (shortcut.kind === 'jump-project') {
-      const list = workspaces.list().filter((workspace) => workspace.kind === 'project')
-      if (shortcut.index < list.length && workspaces.select(list[shortcut.index].id)) {
-        noteSelection(list[shortcut.index].id)
-      }
-    }
-  })
+  // keyboard shortcuts stay active even when focus moves into the browser companion
+  bindShortcutRouter(mainWindow.webContents)
 }
 
 // register the ipc surface that the preload bridge exposes to the renderer
@@ -666,6 +693,25 @@ function setupIpc(): void {
     }
     return reviewService.getFilePatch(workspace, filePath)
   })
+
+  ipcMain.handle('browser:get-state', () => browserPanel?.getState() || createDefaultBrowserPanelState())
+  ipcMain.handle('browser:toggle', async (_, url?: string) =>
+    browserPanel ? browserPanel.toggle(url) : createDefaultBrowserPanelState(),
+  )
+  ipcMain.handle('browser:show', async (_, url?: string) =>
+    browserPanel ? browserPanel.show(url) : createDefaultBrowserPanelState(),
+  )
+  ipcMain.handle('browser:hide', () => browserPanel?.hide() || createDefaultBrowserPanelState())
+  ipcMain.handle('browser:navigate', async (_, url: string) =>
+    browserPanel ? browserPanel.navigate(url) : createDefaultBrowserPanelState(),
+  )
+  ipcMain.handle('browser:go-back', () => browserPanel?.goBack() || createDefaultBrowserPanelState())
+  ipcMain.handle('browser:go-forward', () => browserPanel?.goForward() || createDefaultBrowserPanelState())
+  ipcMain.handle('browser:reload', () => browserPanel?.reload() || createDefaultBrowserPanelState())
+  ipcMain.handle(
+    'browser:set-bounds',
+    (_, bounds: BrowserPanelBounds) => browserPanel?.setBounds(bounds) || createDefaultBrowserPanelState(),
+  )
 
   // window controls
   ipcMain.handle('window:minimize', () => mainWindow?.minimize())

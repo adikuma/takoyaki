@@ -82,6 +82,7 @@ interface Props {
   paneLabel?: string | null
   isPaneFocusMode?: boolean
   isFocused?: boolean
+  focusRequestKey?: number
   onTogglePaneFocusMode?: () => void
 }
 
@@ -140,6 +141,7 @@ export function Terminal({
   paneLabel,
   isPaneFocusMode = false,
   isFocused,
+  focusRequestKey = 0,
   onTogglePaneFocusMode,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -579,6 +581,14 @@ export function Terminal({
 
     term.blur()
   }, [isFocused, isVisible])
+
+  // browser close can return to the same pane without changing logical focus, so refocus xterm explicitly
+  useEffect(() => {
+    if (!focusRequestKey || !isVisible) return
+    const term = termRef.current
+    if (!term) return
+    term.focus()
+  }, [focusRequestKey, isVisible])
 
   // only open find when the global shortcut targets the currently focused visible pane
   useEffect(() => {
