@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ExternalLink, Globe, RotateCw, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, Globe, Maximize2, Minimize2, RotateCw, X } from 'lucide-react'
 import {
   useEffect,
   useRef,
@@ -10,13 +10,16 @@ import {
   type RefObject,
 } from 'react'
 import { colors, fonts, sizes } from './design'
-import type { BrowserPanelState } from '../shared/browser'
+import type { BrowserDisplayMode, BrowserPanelState } from '../shared/browser'
 
 interface BrowserPanelProps {
   rootRef: RefObject<HTMLDivElement | null>
   state: BrowserPanelState
+  mode: BrowserDisplayMode
+  bottomInset?: number
   isResizing: boolean
   onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onToggleFocusMode: () => void
 }
 
 interface BrowserIconButtonProps {
@@ -58,7 +61,15 @@ function BrowserIconButton({ disabled = false, label, onClick, children }: Brows
 }
 
 // keep the native browser view locked to this host box and out of the rest of the layout
-export function BrowserPanel({ rootRef, state, isResizing, onResizePointerDown }: BrowserPanelProps) {
+export function BrowserPanel({
+  rootRef,
+  state,
+  mode,
+  bottomInset = 0,
+  isResizing,
+  onResizePointerDown,
+  onToggleFocusMode,
+}: BrowserPanelProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [address, setAddress] = useState('')
   const currentUrl = state.url || state.lastUrl
@@ -138,19 +149,21 @@ export function BrowserPanel({ rootRef, state, isResizing, onResizePointerDown }
         boxShadow: '-10px 0 30px rgba(0, 0, 0, 0.28)',
       }}
     >
-      <div
-        onPointerDown={onResizePointerDown}
-        className="group absolute inset-y-0 left-0 z-[3] w-3 cursor-col-resize"
-        style={{ touchAction: 'none' }}
-        aria-hidden="true"
-      >
+      {mode === 'side' && (
         <div
-          className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-[120ms]"
-          style={{
-            background: isResizing ? colors.accent : colors.separator,
-          }}
-        />
-      </div>
+          onPointerDown={onResizePointerDown}
+          className="group absolute inset-y-0 left-0 z-[3] w-3 cursor-col-resize"
+          style={{ touchAction: 'none' }}
+          aria-hidden="true"
+        >
+          <div
+            className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 transition-colors duration-[120ms]"
+            style={{
+              background: isResizing ? colors.accent : colors.separator,
+            }}
+          />
+        </div>
+      )}
 
       <div
         className="shrink-0 px-3 py-2"
@@ -214,6 +227,16 @@ export function BrowserPanel({ rootRef, state, isResizing, onResizePointerDown }
 
           <div className="flex items-center gap-1">
             <BrowserIconButton
+              label={mode === 'focus' ? 'Exit browser focus' : 'Focus browser'}
+              onClick={onToggleFocusMode}
+            >
+              {mode === 'focus' ? (
+                <Minimize2 size={sizes.iconSm} strokeWidth={1.9} />
+              ) : (
+                <Maximize2 size={sizes.iconSm} strokeWidth={1.9} />
+              )}
+            </BrowserIconButton>
+            <BrowserIconButton
               label="Open externally"
               disabled={!currentUrl}
               onClick={() => {
@@ -243,10 +266,13 @@ export function BrowserPanel({ rootRef, state, isResizing, onResizePointerDown }
             opacity: state.isLoading ? 1 : 0,
           }}
         />
-        <div ref={hostRef} className="absolute inset-0" />
+        <div ref={hostRef} className="absolute left-0 right-0 top-0" style={{ bottom: bottomInset }} />
 
         {state.error && (
-          <div className="absolute inset-0 flex items-center justify-center px-8 text-center">
+          <div
+            className="absolute left-0 right-0 top-0 flex items-center justify-center px-8 text-center"
+            style={{ bottom: bottomInset }}
+          >
             <div className="max-w-[280px] space-y-2">
               <p style={{ fontFamily: fonts.ui, fontSize: sizes.textBase, color: colors.textPrimary }}>
                 That page did not load cleanly.

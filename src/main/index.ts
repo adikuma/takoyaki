@@ -428,6 +428,12 @@ function createWindow(): void {
         return
       }
 
+      if (shortcut.kind === 'cycle-visible') {
+        const nextWorkspaceId = workspaces.cycleWorkspace(shortcut.direction)
+        noteSelection(nextWorkspaceId)
+        return
+      }
+
       if (shortcut.kind === 'open-project') {
         void openProjectFolder()
         return

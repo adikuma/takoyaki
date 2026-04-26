@@ -10,6 +10,13 @@ import type {
   Workspace,
 } from './types'
 import { normalizePinnedProjectRoot } from './pinned-projects'
+import {
+  createActivityOperationId,
+  type ActivityOperation,
+  type ActivityOperationStatus,
+  type StartActivityOperationInput,
+  type UpdateActivityOperationInput,
+} from '../shared/activity'
 
 // guard for when running outside electron (e.g. vite dev server in browser)
 const api = typeof window !== 'undefined' && window.takoyaki ? window.takoyaki : null
@@ -21,6 +28,7 @@ interface ToastState {
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null
+const maxActivityOperations = 40
 
 // normalizes unknown review errors into one renderer friendly message
 function getReviewErrorDetail(error: unknown): string {
@@ -37,7 +45,7 @@ interface MuxStore {
   refresh: () => Promise<void>
   openProjectFolder: () => Promise<void>
   selectWorkspace: (id: string) => void
-  closeWorkspace: (id: string) => void
+  closeWorkspace: (id: string) => Promise<void>
   toggleSidebar: () => void
   setSurfaceStatuses: (statuses: Record<string, HookSurfaceStatus>) => void
   workspaceActivity: Record<string, number>
@@ -54,6 +62,19 @@ interface MuxStore {
   toast: ToastState | null
   showToast: (toast: ToastState, durationMs?: number) => void
   clearToast: () => void
+  activityOperations: ActivityOperation[]
+  activityPanelOpen: boolean
+  startActivityOperation: (input: StartActivityOperationInput) => string
+  updateActivityOperation: (id: string, input: UpdateActivityOperationInput) => void
+  finishActivityOperation: (
+    id: string,
+    status: ActivityOperationStatus,
+    input?: Omit<UpdateActivityOperationInput, 'status'>,
+  ) => void
+  clearActivityOperation: (id: string) => void
+  clearFinishedActivityOperations: () => void
+  toggleActivityPanel: () => void
+  setActivityPanelOpen: (open: boolean) => void
   activeView: ReviewView
   reviewWorkspaceId: string | null
   selectedReviewFilePath: string | null
@@ -90,9 +111,34 @@ export const useStore = create<MuxStore>((set, get) => ({
 
   openProjectFolder: async () => {
     if (!api) return
-    const ws = await api.workspace.openFolder()
-    if (!ws) return
-    set({ activeWorkspaceId: ws.id })
+    const operationId = get().startActivityOperation({
+      kind: 'workspace',
+      title: 'Opening project',
+      detail: 'Waiting for folder selection.',
+    })
+    try {
+      const ws = await api.workspace.openFolder()
+      if (!ws) {
+        get().finishActivityOperation(operationId, 'blocked', {
+          title: 'Project open canceled',
+          detail: 'No folder was selected.',
+        })
+        return
+      }
+      set({ activeWorkspaceId: ws.id })
+      get().finishActivityOperation(operationId, 'success', {
+        title: 'Project opened',
+        detail: ws.title,
+        workspaceId: ws.id,
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unable to open project.'
+      get().finishActivityOperation(operationId, 'failed', { title: 'Project open failed', detail })
+      get().showToast(
+        { message: 'Project open failed. Open Activity for details.', dot: 'var(--takoyaki-error)' },
+        4200,
+      )
+    }
   },
 
   selectWorkspace: async (id) => {
@@ -108,9 +154,35 @@ export const useStore = create<MuxStore>((set, get) => ({
     await api.workspace.select(id)
   },
 
-  closeWorkspace: (id) => {
+  closeWorkspace: async (id) => {
     if (!api) return
-    void api.workspace.close(id)
+    const workspace = get().workspaces.find((candidate) => candidate.id === id)
+    const operationId = get().startActivityOperation({
+      kind: 'workspace',
+      title: workspace?.kind === 'project' ? 'Closing project' : 'Closing workspace',
+      detail: workspace?.title || id,
+      workspaceId: id,
+    })
+    try {
+      const ok = await api.workspace.close(id)
+      get().finishActivityOperation(operationId, ok ? 'success' : 'failed', {
+        title: ok ? 'Workspace closed' : 'Workspace close failed',
+        detail: workspace?.title || id,
+      })
+      if (!ok) {
+        get().showToast(
+          { message: 'Workspace close failed. Open Activity for details.', dot: 'var(--takoyaki-error)' },
+          4200,
+        )
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unable to close workspace.'
+      get().finishActivityOperation(operationId, 'failed', { title: 'Workspace close failed', detail })
+      get().showToast(
+        { message: 'Workspace close failed. Open Activity for details.', dot: 'var(--takoyaki-error)' },
+        4200,
+      )
+    }
   },
 
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -190,6 +262,54 @@ export const useStore = create<MuxStore>((set, get) => ({
     }
     set({ toast: null })
   },
+  activityOperations: [],
+  activityPanelOpen: false,
+  startActivityOperation: (input) => {
+    const id = createActivityOperationId(input.kind)
+    const now = Date.now()
+    const operation: ActivityOperation = {
+      id,
+      kind: input.kind,
+      title: input.title,
+      detail: input.detail || null,
+      status: 'running',
+      startedAt: now,
+      updatedAt: now,
+      workspaceId: input.workspaceId,
+    }
+    set((state) => ({
+      activityOperations: [operation, ...state.activityOperations].slice(0, maxActivityOperations),
+    }))
+    return id
+  },
+  updateActivityOperation: (id, input) =>
+    set((state) => ({
+      activityOperations: state.activityOperations.map((operation) =>
+        operation.id === id
+          ? {
+              ...operation,
+              ...input,
+              detail: input.detail === undefined ? operation.detail : input.detail,
+              updatedAt: Date.now(),
+            }
+          : operation,
+      ),
+    })),
+  finishActivityOperation: (id, status, input = {}) =>
+    get().updateActivityOperation(id, {
+      ...input,
+      status,
+    }),
+  clearActivityOperation: (id) =>
+    set((state) => ({
+      activityOperations: state.activityOperations.filter((operation) => operation.id !== id),
+    })),
+  clearFinishedActivityOperations: () =>
+    set((state) => ({
+      activityOperations: state.activityOperations.filter((operation) => operation.status === 'running'),
+    })),
+  toggleActivityPanel: () => set((state) => ({ activityPanelOpen: !state.activityPanelOpen })),
+  setActivityPanelOpen: (open) => set({ activityPanelOpen: open }),
 
   activeView: 'terminal',
   reviewWorkspaceId: null,

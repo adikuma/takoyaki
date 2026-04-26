@@ -27,6 +27,7 @@ interface ProjectTreeProps {
   onOpenTaskModal: (projectId: string) => void
   onOpenReview: (workspaceId: string) => void
   onOpenInEditor: (workspaceId: string) => void
+  removingTaskId?: string | null
   onConfirmCloseProject: (project: { id: string; title: string }) => void
   onConfirmRemoveTask: (task: { id: string; title: string }) => void
 }
@@ -44,6 +45,7 @@ export function ProjectTree({
   onOpenTaskModal,
   onOpenReview,
   onOpenInEditor,
+  removingTaskId,
   onConfirmCloseProject,
   onConfirmRemoveTask,
 }: ProjectTreeProps) {
@@ -66,6 +68,7 @@ export function ProjectTree({
           onOpenTaskModal={onOpenTaskModal}
           onOpenReview={onOpenReview}
           onOpenInEditor={onOpenInEditor}
+          removingTaskId={removingTaskId}
           onConfirmCloseProject={onConfirmCloseProject}
           onConfirmRemoveTask={onConfirmRemoveTask}
         />
@@ -87,6 +90,7 @@ function ProjectTreeSection({
   onOpenTaskModal,
   onOpenReview,
   onOpenInEditor,
+  removingTaskId,
   onConfirmCloseProject,
   onConfirmRemoveTask,
 }: {
@@ -101,6 +105,7 @@ function ProjectTreeSection({
   onOpenTaskModal: (projectId: string) => void
   onOpenReview: (workspaceId: string) => void
   onOpenInEditor: (workspaceId: string) => void
+  removingTaskId?: string | null
   onConfirmCloseProject: (project: { id: string; title: string }) => void
   onConfirmRemoveTask: (task: { id: string; title: string }) => void
 }) {
@@ -222,6 +227,7 @@ function ProjectTreeSection({
           onSelectWorkspace={onSelectWorkspace}
           onOpenReview={onOpenReview}
           onOpenInEditor={onOpenInEditor}
+          removingTaskId={removingTaskId}
           onConfirmRemoveTask={onConfirmRemoveTask}
         />
       ))}
@@ -240,6 +246,7 @@ function TaskRow({
   onSelectWorkspace,
   onOpenReview,
   onOpenInEditor,
+  removingTaskId,
   onConfirmRemoveTask,
 }: {
   task: Workspace
@@ -251,9 +258,11 @@ function TaskRow({
   onSelectWorkspace: (workspaceId: string) => void
   onOpenReview: (workspaceId: string) => void
   onOpenInEditor: (workspaceId: string) => void
+  removingTaskId?: string | null
   onConfirmRemoveTask: (task: { id: string; title: string }) => void
 }) {
   const taskSelected = task.id === activeId
+  const removing = task.id === removingTaskId
   const taskStatus = aggregateClaudeWorkspaceStatus(surfaceStatuses, task.surfaceIds || [])
   const taskMenuItems: RowMenuItem[] = [
     {
@@ -274,7 +283,10 @@ function TaskRow({
       label: 'Remove task',
       icon: <Trash2 size={sizes.iconSm} strokeWidth={1.8} />,
       danger: true,
+      disabled: removing,
+      hint: removing ? 'removing' : undefined,
       onSelect: () => {
+        if (removing) return
         onConfirmRemoveTask({ id: task.id, title: task.title })
       },
     },
@@ -282,9 +294,10 @@ function TaskRow({
 
   return (
     <div
-      className="group/task flex cursor-pointer"
-      style={{ marginLeft: 14 }}
+      className={`group/task flex ${removing ? 'cursor-default' : 'cursor-pointer'}`}
+      style={{ marginLeft: 14, opacity: removing ? 0.58 : 1 }}
       onClick={() => {
+        if (removing) return
         onSelectWorkspace(task.id)
       }}
     >
@@ -367,7 +380,7 @@ function TaskRow({
             }}
           >
             <div className="flex items-center gap-1">
-              <span>{getProjectBranchLabel(task)}</span>
+              <span>{removing ? 'removing worktree...' : getProjectBranchLabel(task)}</span>
               {taskStatus && (
                 <span style={{ marginLeft: 4 }}>
                   <StatusGlyph status={taskStatus} />

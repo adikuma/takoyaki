@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Each release must use an explicit version heading in the format `## [x.y.z] - YYYY-MM-DD`.
 
+## [0.2.1] - 2026-04-26
+
+### Added
+- Browser focus mode so the companion can expand without becoming part of the pane tree
+- Activity drawer for recent workspace, git, browser, editor, and hook operations
+
+### Changed
+- Kept terminal mounting active-workspace only so hidden sessions do not add extra renderer weight
+- Improved task creation and removal feedback with visible activity state and toasts
+
+### Fixed
+- Kept browser focus recovery and workspace cycling shortcuts aligned while the embedded page has focus
+- Added fast-forward recovery for large terminal backlogs so restored Codex-heavy sessions avoid slow replay
+
 ## [0.2.0] - 2026-04-20
 
 ### Added

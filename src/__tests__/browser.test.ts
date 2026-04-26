@@ -5,6 +5,7 @@ import {
   getBrowserUrlDisposition,
   getBrowserWindowOpenDisposition,
   normalizeBrowserInput,
+  sanitizeBrowserUserAgent,
 } from '../shared/browser'
 
 describe('browser helpers', () => {
@@ -58,5 +59,13 @@ describe('browser helpers', () => {
   it('hides about blank from renderer state', () => {
     expect(getBrowserStateUrl('about:blank')).toBeNull()
     expect(getBrowserStateUrl('https://example.com')).toBe('https://example.com')
+  })
+
+  it('removes electron app branding from browser user agents', () => {
+    expect(
+      sanitizeBrowserUserAgent(
+        'Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36 Electron/33.2.1 takoyaki/0.2.1 cmux-windows/0.2.1',
+      ),
+    ).toBe('Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36')
   })
 })

@@ -5,6 +5,8 @@ import {
   TASK_BRANCH_REQUIRED_ERROR,
   TASK_TITLE_REQUIRED_ERROR,
 } from './sidebar-utils'
+import { useStore } from '../store'
+import { colors } from '../design'
 
 export function useTaskCreationController() {
   const [taskModalProjectId, setTaskModalProjectId] = useState<string | null>(null)
@@ -17,6 +19,9 @@ export function useTaskCreationController() {
   const [taskCreating, setTaskCreating] = useState(false)
   const taskTitleRef = useRef<HTMLInputElement>(null)
   const taskBranchNameRef = useRef<HTMLInputElement>(null)
+  const startActivityOperation = useStore((state) => state.startActivityOperation)
+  const finishActivityOperation = useStore((state) => state.finishActivityOperation)
+  const showToast = useStore((state) => state.showToast)
 
   // reset modal state and load base branches every time a project opens the task dialog
   useEffect(() => {
@@ -82,6 +87,12 @@ export function useTaskCreationController() {
 
     setTaskCreating(true)
     setTaskCreateError(null)
+    const operationId = startActivityOperation({
+      kind: 'git',
+      title: 'Creating task worktree',
+      detail: taskBranchName.trim(),
+      workspaceId: taskModalProjectId,
+    })
     const result = await window.takoyaki.workspace.createTask(taskModalProjectId, {
       taskTitle: taskTitle.trim(),
       branchName: taskBranchName.trim(),
@@ -90,8 +101,18 @@ export function useTaskCreationController() {
     setTaskCreating(false)
     if (!result.ok) {
       setTaskCreateError(result.detail || 'Unable to create task')
+      finishActivityOperation(operationId, 'failed', {
+        title: 'Task creation failed',
+        detail: result.detail || 'Unable to create task',
+      })
+      showToast({ message: 'Task creation failed. Open Activity for details.', dot: colors.error }, 4200)
       return
     }
+    finishActivityOperation(operationId, 'success', {
+      title: 'Task worktree created',
+      detail: result.workspace?.title || taskTitle.trim(),
+      workspaceId: result.workspace?.id,
+    })
     setTaskModalProjectId(null)
   }
 

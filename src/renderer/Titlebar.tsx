@@ -3,6 +3,7 @@
 import { Globe, Menu } from 'lucide-react'
 import { useStore } from './store'
 import { colors, sizes } from './design'
+import { Tooltip } from './Tooltip'
 import takoyakiLogo from '../assets/takoyaki-logo.svg?raw'
 
 interface Props {
@@ -82,20 +83,22 @@ export function Titlebar({ narrow = false, onToggleSidebar, browserVisible = fal
       <div className="flex-1" />
 
       <div className="flex h-full no-drag">
-        <button
-          onClick={onToggleBrowser}
-          className="w-[46px] h-full flex items-center justify-center transition-colors duration-[120ms]"
-          style={{ color: browserVisible ? colors.accent : colors.textGhost }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = browserVisible ? colors.accent : colors.textSecondary
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = browserVisible ? colors.accent : colors.textGhost
-          }}
-          aria-label={browserVisible ? 'close browser' : 'open browser'}
-        >
-          <Globe size={sizes.iconSm} strokeWidth={1.9} />
-        </button>
+        <Tooltip content={browserVisible ? 'Close browser' : 'Open browser'} side="bottom" delay={150}>
+          <button
+            onClick={onToggleBrowser}
+            className="w-[46px] h-full flex items-center justify-center transition-colors duration-[120ms]"
+            style={{ color: browserVisible ? colors.accent : colors.textGhost }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = browserVisible ? colors.accent : colors.textSecondary
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = browserVisible ? colors.accent : colors.textGhost
+            }}
+            aria-label={browserVisible ? 'close browser' : 'open browser'}
+          >
+            <Globe size={sizes.iconSm} strokeWidth={1.9} />
+          </button>
+        </Tooltip>
         <div className="h-full w-px" style={{ background: colors.separator }} aria-hidden="true" />
         <button
           onClick={() => window.takoyaki?.window.minimize()}

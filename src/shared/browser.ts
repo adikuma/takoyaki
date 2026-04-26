@@ -18,6 +18,15 @@ export interface BrowserPanelState {
 
 export type BrowserUrlDisposition = 'panel' | 'blocked'
 export type BrowserWindowOpenDisposition = 'external-web' | 'block'
+export type BrowserDisplayMode = 'side' | 'focus'
+
+// make embedded pages see a normal chromium user agent instead of electron branding
+export function sanitizeBrowserUserAgent(defaultUserAgent: string): string {
+  return defaultUserAgent
+    .replace(/\s(?:Electron|Takoyaki|takoyaki|cmux-windows)\/\S+/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
 
 // keep the browser state shape shared across main and renderer
 export function createDefaultBrowserPanelState(): BrowserPanelState {

@@ -18,6 +18,11 @@ import { matchTakoyakiShortcut } from '../shared/shortcuts'
 import { Tooltip } from './Tooltip'
 import '@xterm/xterm/css/xterm.css'
 import { DEFAULT_TERMINAL_FONT_SIZE, TERMINAL_FONT_SIZE_STEP, clampTerminalFontSize } from '../shared/terminal-zoom'
+import {
+  filterTerminalEventsAfterEventId,
+  shouldFastForwardTerminalBacklog,
+  terminalEventPayloadBytes,
+} from './terminal-backlog'
 
 let terminalRuntimeInfoPromise: Promise<TerminalRuntimeInfo> | null = null
 const TERMINAL_SCROLL_SENSITIVITY = 2
@@ -153,6 +158,7 @@ export function Terminal({
   const resizeFrameRef = useRef<number | null>(null)
   const frameRef = useRef<TerminalFrame | null>(frame)
   const pendingEventsRef = useRef<TerminalEvent[]>([])
+  const pendingEventBytesRef = useRef(0)
   const hydratedRef = useRef(false)
   const lastAppliedEventIdRef = useRef(0)
   const writeQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -351,6 +357,7 @@ export function Terminal({
     let observer: ResizeObserver | null = null
 
     pendingEventsRef.current = []
+    pendingEventBytesRef.current = 0
     hydratedRef.current = false
     lastAppliedEventIdRef.current = 0
     writeQueueRef.current = Promise.resolve()
@@ -480,6 +487,7 @@ export function Terminal({
           if (event.terminalId !== terminalId) return
           if (!hydratedRef.current) {
             pendingEventsRef.current.push(event)
+            pendingEventBytesRef.current += terminalEventPayloadBytes(event)
             return
           }
           void applyEvent(term, event)
@@ -494,6 +502,31 @@ export function Terminal({
             if (snapshot) {
               await applySnapshot(term, snapshot)
 
+              if (
+                shouldFastForwardTerminalBacklog({
+                  queuedBytes: pendingEventBytesRef.current,
+                  queuedEvents: pendingEventsRef.current.length,
+                })
+              ) {
+                try {
+                  const freshSnapshot = await window.takoyaki.terminal.open(terminalId)
+                  if (freshSnapshot && !disposed && termRef.current) {
+                    await applySnapshot(term, freshSnapshot)
+                  }
+                } catch {
+                  // fall back to the already loaded snapshot and ordered replay
+                }
+              }
+
+              pendingEventsRef.current = filterTerminalEventsAfterEventId(
+                pendingEventsRef.current,
+                lastAppliedEventIdRef.current,
+              )
+              pendingEventBytesRef.current = pendingEventsRef.current.reduce(
+                (total, event) => total + terminalEventPayloadBytes(event),
+                0,
+              )
+
               // keep replaying until the buffer stays empty so older events never get skipped
               while (pendingEventsRef.current.length > 0) {
                 const replayable = pendingEventsRef.current
@@ -501,6 +534,7 @@ export function Terminal({
                   .sort((first, second) => first.eventId - second.eventId)
 
                 pendingEventsRef.current = []
+                pendingEventBytesRef.current = 0
                 for (const event of replayable) {
                   await applyEvent(term, event)
                 }
@@ -542,6 +576,7 @@ export function Terminal({
       termRef.current = null
       hydratedRef.current = false
       pendingEventsRef.current = []
+      pendingEventBytesRef.current = 0
       lastAppliedEventIdRef.current = 0
       setIsAlternateScreen(false)
       setShowScrollToBottom(false)

@@ -5,6 +5,7 @@ import {
   getBrowserUrlDisposition,
   getBrowserWindowOpenDisposition,
   normalizeBrowserInput,
+  sanitizeBrowserUserAgent,
   type BrowserPanelBounds,
   type BrowserPanelState,
 } from '../shared/browser'
@@ -17,7 +18,7 @@ interface BrowserPanelControllerOptions {
   restoreSurfaceFocus: (surfaceId: string | null) => void
 }
 
-const browserSessionPartition = 'takoyaki-browser'
+const browserSessionPartition = 'persist:takoyaki-browser'
 
 // keep the browser as a separate companion so it never owns workspace layout state
 export class BrowserPanelController {
@@ -219,6 +220,7 @@ export class BrowserPanelController {
         session: this.browserSession,
       },
     })
+    view.webContents.setUserAgent(sanitizeBrowserUserAgent(view.webContents.getUserAgent()))
 
     view.webContents.setWindowOpenHandler(({ url }) => {
       const disposition = getBrowserWindowOpenDisposition(url)
@@ -319,7 +321,7 @@ export class BrowserPanelController {
   }
 
   private restoreFocus(): void {
-    const surfaceId = this.returnFocusSurfaceId || this.getFocusedSurfaceId()
+    const surfaceId = this.getFocusedSurfaceId() || this.returnFocusSurfaceId
     this.returnFocusSurfaceId = null
 
     try {

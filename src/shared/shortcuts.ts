@@ -35,6 +35,10 @@ export type ShortcutMatch =
       kind: 'move-focus'
       direction: FocusDirection
     }
+  | {
+      kind: 'cycle-visible'
+      direction: 'next' | 'prev'
+    }
 
 export const shortcutDisplayRows: Array<{ description: string; label: string }> = [
   { description: 'Open project', label: 'Ctrl+Shift+O' },
@@ -68,6 +72,8 @@ export function matchTakoyakiShortcut(input: ShortcutInput): ShortcutMatch | nul
     }
     return null
   }
+
+  if (key === 'tab') return { kind: 'cycle-visible', direction: input.shiftKey ? 'prev' : 'next' }
 
   if (!input.shiftKey) return null
 

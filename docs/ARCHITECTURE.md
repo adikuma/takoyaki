@@ -146,7 +146,24 @@ sequenceDiagram
     Renderer->>User: browser companion appears beside the shell
 ```
 
-The browser stays outside the pane tree. That keeps pane layout, split ratios, and terminal ownership in the workspace manager instead of mixing browser state into the core shell.
+The browser stays outside the pane tree. That keeps pane layout, split ratios, and terminal ownership in the workspace manager instead of mixing browser state into the core shell. Focus mode only changes the browser panel presentation in the renderer; it does not become a workspace pane.
+
+## Operation activity drawer
+
+```mermaid
+sequenceDiagram
+    participant UI as Renderer
+    participant Store as Zustand
+    participant Main
+
+    UI->>Store: startActivityOperation()
+    UI->>Main: run workspace, git, browser, editor, or hook action
+    Main-->>UI: success, failure, or blocked result
+    UI->>Store: finishActivityOperation()
+    Store->>UI: bottom activity drawer updates
+```
+
+The activity drawer is renderer-side operational feedback. It is not the canonical workspace state. It records recent user-visible work, failures, and blocked operations so long-running git, browser, editor, and hook actions do not feel silent.
 
 ## Renderer terminal mounting
 
