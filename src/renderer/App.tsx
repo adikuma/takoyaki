@@ -16,6 +16,7 @@ import { Terminal } from './Terminal'
 import { Settings } from './Settings'
 import { Review } from './Review'
 import { BrowserPanel } from './BrowserPanel'
+import { DEFAULT_ACTIVITY_PANEL_HEIGHT, ActivityPanel } from './ActivityPanel'
 import { button, colors, fonts, sizes } from './design'
 import {
   MAX_HIDDEN_MOUNTED_WORKSPACES,
@@ -26,7 +27,7 @@ import {
 } from './terminal-layout'
 import { resolvePaneLabels } from './pane-labels'
 import type { PaneTree, TerminalMetadata, WorkspaceSnapshot } from './types'
-import { createDefaultBrowserPanelState, type BrowserPanelState } from '../shared/browser'
+import { createDefaultBrowserPanelState, type BrowserDisplayMode, type BrowserPanelState } from '../shared/browser'
 
 // normalizes terminal snapshots into the lighter metadata shape the app caches
 function snapshotToTerminalMetadata(snapshot: {
@@ -132,6 +133,8 @@ export function App() {
   const toast = useStore((s) => s.toast)
   const showToast = useStore((s) => s.showToast)
   const clearToast = useStore((s) => s.clearToast)
+  const startActivityOperation = useStore((s) => s.startActivityOperation)
+  const finishActivityOperation = useStore((s) => s.finishActivityOperation)
   const activeView = useStore((s) => s.activeView)
   const reviewWorkspaceId = useStore((s) => s.reviewWorkspaceId)
   const reviewFocusMode = useStore((s) => s.reviewFocusMode)
@@ -153,7 +156,9 @@ export function App() {
   const [sidebarDrawerOpen, setSidebarDrawerOpen] = useState(false)
   const [activeVisibleSurfaceId, setActiveVisibleSurfaceId] = useState<string | null>(null)
   const [browserState, setBrowserState] = useState<BrowserPanelState>(() => createDefaultBrowserPanelState())
+  const [browserDisplayMode, setBrowserDisplayMode] = useState<BrowserDisplayMode>('side')
   const [browserWidth, setBrowserWidth] = useState(420)
+  const [activityPanelHeight, setActivityPanelHeight] = useState(DEFAULT_ACTIVITY_PANEL_HEIGHT)
   const [mountedWorkspaceIds, setMountedWorkspaceIds] = useState<string[]>([])
   const [browserResizeState, setBrowserResizeState] = useState<{
     pointerId: number
@@ -165,6 +170,7 @@ export function App() {
     Record<string, { top: number; left: number; width: number; height: number }>
   >({})
   const [terminalMetadataById, setTerminalMetadataById] = useState<Record<string, TerminalMetadata>>({})
+  const browserLoadOperationRef = useRef<{ id: string; url: string | null } | null>(null)
   const selectWorkspace = useStore((s) => s.selectWorkspace)
   const terminalViewportRef = useRef<HTMLDivElement>(null)
 
@@ -192,6 +198,8 @@ export function App() {
     [paneLeaves, surfaceStatuses, terminalMetadataById, terminalViews],
   )
   const browserVisible = browserState.visible && !isNarrowLayout
+  const browserSideVisible = browserVisible && browserDisplayMode === 'side'
+  const browserFocusVisible = browserVisible && browserDisplayMode === 'focus'
 
   // keep the browser width inside a safe desktop-only range
   const clampBrowserWidth = useCallback((nextWidth: number) => {
@@ -423,11 +431,54 @@ export function App() {
     void window.takoyaki?.browser.hide()
   }, [browserState.visible, isNarrowLayout])
 
-  // keep the browser companion scoped to terminal view so review stays isolated
+  // browser focus is temporary and should not become the next default open mode
   useEffect(() => {
-    if (activeView === 'terminal' || !browserState.visible) return
-    void window.takoyaki?.browser.hide()
-  }, [activeView, browserState.visible])
+    if (!browserVisible) setBrowserDisplayMode('side')
+  }, [browserVisible])
+
+  // mirrors browser loading into the activity drawer so slow pages are visible
+  useEffect(() => {
+    const currentUrl = browserState.url || browserState.lastUrl
+
+    if (browserState.visible && browserState.isLoading) {
+      if (browserLoadOperationRef.current?.url === currentUrl) return
+      if (browserLoadOperationRef.current) {
+        finishActivityOperation(browserLoadOperationRef.current.id, 'blocked', {
+          title: 'Browser load replaced',
+          detail: browserLoadOperationRef.current.url || null,
+        })
+      }
+      const id = startActivityOperation({
+        kind: 'browser',
+        title: 'Loading browser page',
+        detail: currentUrl || 'Opening page.',
+      })
+      browserLoadOperationRef.current = { id, url: currentUrl }
+      return
+    }
+
+    const operation = browserLoadOperationRef.current
+    if (!operation) return
+    browserLoadOperationRef.current = null
+    finishActivityOperation(operation.id, browserState.error ? 'failed' : 'success', {
+      title: browserState.error ? 'Browser page failed' : 'Browser page loaded',
+      detail: browserState.error || operation.url || currentUrl || null,
+    })
+  }, [
+    browserState.error,
+    browserState.isLoading,
+    browserState.lastUrl,
+    browserState.url,
+    browserState.visible,
+    finishActivityOperation,
+    startActivityOperation,
+  ])
+
+  // page failures should be visible even when the activity drawer is closed
+  useEffect(() => {
+    if (!browserState.error) return
+    showToast({ message: 'Browser failed to load. Open Activity for details.', dot: colors.error }, 4200)
+  }, [browserState.error, showToast])
 
   // closes the drawer whenever the layout or active workspace makes the drawer stale
   useEffect(() => {
@@ -764,6 +815,7 @@ export function App() {
           <Review workspace={reviewWorkspace} narrow={narrow} />
         </div>
       )}
+      <ActivityPanel height={activityPanelHeight} onHeightChange={setActivityPanelHeight} />
     </div>
   )
 
@@ -778,6 +830,7 @@ export function App() {
         browserVisible={browserVisible}
         onToggleBrowser={() => {
           if (isNarrowLayout || !window.takoyaki?.browser) return
+          if (!browserState.visible) setBrowserDisplayMode('side')
           void window.takoyaki.browser.toggle(browserState.lastUrl || undefined)
         }}
         onToggleSidebar={() => {
@@ -807,7 +860,7 @@ export function App() {
             </>
           )}
         </div>
-        {browserVisible && <div style={{ width: browserWidth, flexShrink: 0 }} aria-hidden="true" />}
+        {browserSideVisible && <div style={{ width: browserWidth, flexShrink: 0 }} aria-hidden="true" />}
       </div>
       {browserVisible && (
         <div className="pointer-events-none absolute inset-0 z-30">
@@ -815,20 +868,25 @@ export function App() {
             className="pointer-events-auto absolute bottom-0 right-0"
             style={{
               top: sizes.titlebarHeight,
-              width: browserWidth,
+              ...(browserFocusVisible ? { left: 0 } : { width: browserWidth }),
             }}
           >
             <BrowserPanel
               rootRef={rootShellRef}
               state={browserState}
+              mode={browserDisplayMode}
               isResizing={Boolean(browserResizeState)}
               onResizePointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
                 event.preventDefault()
+                if (browserDisplayMode !== 'side') return
                 setBrowserResizeState({
                   pointerId: event.pointerId,
                   startX: event.clientX,
                   startWidth: browserWidth,
                 })
+              }}
+              onToggleFocusMode={() => {
+                setBrowserDisplayMode((mode) => (mode === 'focus' ? 'side' : 'focus'))
               }}
             />
           </div>

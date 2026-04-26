@@ -53,6 +53,9 @@ export function Settings({ open, onClose }: Props) {
   const editorAvailability = useStore((s) => s.editorAvailability)
   const loadEditorState = useStore((s) => s.loadEditorState)
   const setEditorPreference = useStore((s) => s.setEditorPreference)
+  const startActivityOperation = useStore((s) => s.startActivityOperation)
+  const finishActivityOperation = useStore((s) => s.finishActivityOperation)
+  const showToast = useStore((s) => s.showToast)
 
   // fetches hook health info from main process
   const loadDiagnostics = async () => {
@@ -100,11 +103,29 @@ export function Settings({ open, onClose }: Props) {
     if (!window.takoyaki?.hooks) return
     setInstalling(true)
     setInstallResult(null)
-    const ok = await window.takoyaki.hooks.install()
-    await loadDiagnostics()
-    setInstalling(false)
-    setInstallResult(ok ? 'installed' : 'failed')
-    setTimeout(() => setInstallResult(null), 2500)
+    const operationId = startActivityOperation({
+      kind: 'hooks',
+      title: 'Installing Claude hooks',
+      detail: 'Writing Takoyaki hook commands into Claude settings.',
+    })
+    try {
+      const ok = await window.takoyaki.hooks.install()
+      await loadDiagnostics()
+      setInstallResult(ok ? 'installed' : 'failed')
+      finishActivityOperation(operationId, ok ? 'success' : 'failed', {
+        title: ok ? 'Claude hooks installed' : 'Claude hook install failed',
+        detail: ok ? 'Claude can now report session status to Takoyaki.' : 'The hook installer returned false.',
+      })
+      if (!ok) showToast({ message: 'Hook install failed. Open Activity for details.', dot: colors.error }, 4200)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unable to install Claude hooks.'
+      setInstallResult('failed')
+      finishActivityOperation(operationId, 'failed', { title: 'Claude hook install failed', detail })
+      showToast({ message: 'Hook install failed. Open Activity for details.', dot: colors.error }, 4200)
+    } finally {
+      setInstalling(false)
+      setTimeout(() => setInstallResult(null), 2500)
+    }
   }
 
   // runs the hook script and checks if the status update arrives back via socket
@@ -112,11 +133,29 @@ export function Settings({ open, onClose }: Props) {
     if (!window.takoyaki?.hooks) return
     setTesting(true)
     setTestResult(null)
-    const result = await window.takoyaki.hooks.test()
-    await loadDiagnostics()
-    setTesting(false)
-    setTestResult(result.ok ? 'passed' : 'failed')
-    setTimeout(() => setTestResult(null), 2500)
+    const operationId = startActivityOperation({
+      kind: 'hooks',
+      title: 'Testing Claude hooks',
+      detail: 'Waiting for a status event from the hook bridge.',
+    })
+    try {
+      const result = await window.takoyaki.hooks.test()
+      await loadDiagnostics()
+      setTestResult(result.ok ? 'passed' : 'failed')
+      finishActivityOperation(operationId, result.ok ? 'success' : 'failed', {
+        title: result.ok ? 'Claude hook test passed' : 'Claude hook test failed',
+        detail: result.detail,
+      })
+      if (!result.ok) showToast({ message: 'Hook test failed. Open Activity for details.', dot: colors.error }, 4200)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unable to test Claude hooks.'
+      setTestResult('failed')
+      finishActivityOperation(operationId, 'failed', { title: 'Claude hook test failed', detail })
+      showToast({ message: 'Hook test failed. Open Activity for details.', dot: colors.error }, 4200)
+    } finally {
+      setTesting(false)
+      setTimeout(() => setTestResult(null), 2500)
+    }
   }
 
   const installedHooks = diagnostics?.installedHooks

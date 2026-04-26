@@ -18,6 +18,7 @@ export interface BrowserPanelState {
 
 export type BrowserUrlDisposition = 'panel' | 'blocked'
 export type BrowserWindowOpenDisposition = 'external-web' | 'block'
+export type BrowserDisplayMode = 'side' | 'focus'
 
 // keep the browser state shape shared across main and renderer
 export function createDefaultBrowserPanelState(): BrowserPanelState {

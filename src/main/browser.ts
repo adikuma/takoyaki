@@ -319,7 +319,7 @@ export class BrowserPanelController {
   }
 
   private restoreFocus(): void {
-    const surfaceId = this.returnFocusSurfaceId || this.getFocusedSurfaceId()
+    const surfaceId = this.getFocusedSurfaceId() || this.returnFocusSurfaceId
     this.returnFocusSurfaceId = null
 
     try {

@@ -41,6 +41,8 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
   const theme = useStore((state) => state.theme)
   const toggleTheme = useStore((state) => state.toggleTheme)
   const showToast = useStore((state) => state.showToast)
+  const startActivityOperation = useStore((state) => state.startActivityOperation)
+  const finishActivityOperation = useStore((state) => state.finishActivityOperation)
   const editorAvailability = useStore((state) => state.editorAvailability)
   const openReview = useStore((state) => state.openReview)
 
@@ -66,7 +68,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
     setTaskBaseBranch,
     createTask,
   } = useTaskCreationController()
-  const { confirmRemoveTask, taskRemoveBusy, promptRemoveTask, closeRemoveTaskModal, removeTask } =
+  const { confirmRemoveTask, taskRemoveBusy, removingTaskId, promptRemoveTask, closeRemoveTaskModal, removeTask } =
     useTaskRemovalController()
 
   const projects = useMemo(() => workspaces.filter((workspace) => workspace.kind === 'project'), [workspaces])
@@ -126,14 +128,32 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
       return
     }
     setOpeningWorkspaceId(workspaceId)
+    const operationId = startActivityOperation({
+      kind: 'editor',
+      title: 'Opening editor',
+      detail: workspaces.find((workspace) => workspace.id === workspaceId)?.title || workspaceId,
+      workspaceId,
+    })
     let result
     try {
       result = await window.takoyaki.editor.openWorkspace(workspaceId, 'preferred')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Unable to open editor.'
+      finishActivityOperation(operationId, 'failed', { title: 'Editor open failed', detail })
+      showToast({ message: detail, dot: colors.error }, 3200)
+      return
     } finally {
       setOpeningWorkspaceId(null)
     }
     if (!result.ok) {
+      finishActivityOperation(operationId, 'failed', { title: 'Editor open failed', detail: result.detail })
       showToast({ message: result.detail, dot: colors.error }, 3200)
+    }
+    if (result.ok) {
+      finishActivityOperation(operationId, 'success', {
+        title: 'Editor opened',
+        detail: workspaces.find((workspace) => workspace.id === workspaceId)?.title || workspaceId,
+      })
     }
     if (result.ok && narrow) onRequestClose?.()
   }
@@ -228,6 +248,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
         onOpenInEditor={(workspaceId) => {
           void handleOpenInEditor(workspaceId)
         }}
+        removingTaskId={removingTaskId}
         onConfirmCloseProject={setConfirmClose}
         onConfirmRemoveTask={promptRemoveTask}
       />
@@ -236,7 +257,7 @@ export function Sidebar({ narrow = false, drawerOpen = true, onRequestOpen, onRe
         project={confirmClose}
         onClose={() => setConfirmClose(null)}
         onConfirm={(projectId) => {
-          closeWorkspace(projectId)
+          void closeWorkspace(projectId)
         }}
       />
 
