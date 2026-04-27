@@ -17,6 +17,7 @@ import { ReviewService } from './review'
 import { removeTaskWorkspaceAndWorktree } from './task-removal'
 import { matchTakoyakiShortcut } from '../shared/shortcuts'
 import { BrowserPanelController } from './browser'
+import { UpdateService } from './updates'
 import {
   shouldShowHooksBanner,
   installHooks,
@@ -49,6 +50,7 @@ const preferencesService = new PreferencesService()
 const editorService = new EditorService(preferencesService)
 const terminalRuntimeInfo = getTerminalRuntimeInfo()
 const reviewService = new ReviewService()
+const updateService = new UpdateService(send)
 const pendingGitRefreshProjects = new Set<string>()
 
 const surfaceStatuses = new Map<string, ClaudeSurfaceStatus>()
@@ -649,6 +651,11 @@ function setupIpc(): void {
   // workspace activity
   ipcMain.handle('activity:get', () => Object.fromEntries(workspaceLastActivity))
 
+  // updates
+  ipcMain.handle('updates:get-state', () => updateService.getState())
+  ipcMain.handle('updates:check', () => updateService.check())
+  ipcMain.handle('updates:install', () => updateService.install())
+
   // pinning is a user preference and not part of workspace layout state
   ipcMain.handle('preferences:get-pinned-project-roots', () => preferencesService.getPinnedProjectRoots())
   ipcMain.handle('preferences:set-pinned-project-roots', (_, projectRoots: string[]) =>
@@ -788,6 +795,7 @@ app.whenReady().then(async () => {
   await socketServer.start()
   socketServer.startHealthCheck()
   createWindow()
+  updateService.start()
   void refreshRestoredGitBranches()
 })
 

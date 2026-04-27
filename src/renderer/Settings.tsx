@@ -5,6 +5,7 @@ import { useStore } from './store'
 import type { EditorKind, HookDiagnostics } from './types'
 import { shortcutDisplayRows } from '../shared/shortcuts'
 import { MANAGED_CLAUDE_HOOK_EVENTS } from '../shared/claude-status'
+import type { UpdateState } from '../shared/updates'
 import claudeLogo from './assets/providers/claude.svg?raw'
 import cursorLogo from './assets/providers/cursor.svg?raw'
 import vscodeLogo from './assets/providers/vscode.svg?raw'
@@ -13,6 +14,21 @@ import zedLogo from './assets/providers/zed.svg?raw'
 interface Props {
   open: boolean
   onClose: () => void
+  updateState: UpdateState | null
+  onCheckForUpdates: () => void
+  onInstallUpdate: () => void
+}
+
+function getUpdateStatusLabel(updateState: UpdateState | null): string {
+  if (!updateState) return 'Checking availability'
+  if (updateState.status === 'disabled') return 'Packaged app only'
+  if (updateState.status === 'checking') return 'Checking'
+  if (updateState.status === 'available') return 'Update found'
+  if (updateState.status === 'downloading') return `Downloading ${updateState.downloadPercent ?? 0}%`
+  if (updateState.status === 'downloaded') return `Version ${updateState.availableVersion || ''} ready`
+  if (updateState.status === 'not-available') return 'Up to date'
+  if (updateState.status === 'error') return 'Update check failed'
+  return 'Ready'
 }
 
 // renders an editor logo svg inline using the shared base icon size
@@ -40,7 +56,7 @@ function MissingMark() {
 }
 
 // render the settings drawer and its hook and editor preference controls
-export function Settings({ open, onClose }: Props) {
+export function Settings({ open, onClose, updateState, onCheckForUpdates, onInstallUpdate }: Props) {
   const [diagnostics, setDiagnostics] = useState<HookDiagnostics | null>(null)
   const [installing, setInstalling] = useState(false)
   const [installResult, setInstallResult] = useState<'installed' | 'failed' | null>(null)
@@ -177,6 +193,9 @@ export function Settings({ open, onClose }: Props) {
   const claudeTotal = claudeHooks ? claudeHooks.length : 0
 
   const sectionBorder = `1px solid ${colors.borderSubtle}`
+  const updateDisabled = !updateState || updateState.status === 'disabled'
+  const updateBusy = updateState?.status === 'checking' || updateState?.status === 'downloading'
+  const updateDownloaded = updateState?.status === 'downloaded'
 
   return (
     <div className="absolute inset-0 z-50 flex">
@@ -215,6 +234,59 @@ export function Settings({ open, onClose }: Props) {
 
         {/* scrollable content */}
         <div className="flex-1 overflow-y-auto">
+          <div className="px-5 py-4" style={{ borderBottom: sectionBorder }}>
+            <span
+              className="text-[10px] font-semibold"
+              style={{ color: colors.textMuted, letterSpacing: '0.1em', textTransform: 'uppercase' }}
+            >
+              Updates
+            </span>
+
+            <div className="mt-2 rounded-md" style={{ background: colors.bgCard, padding: '12px 14px' }}>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                  {getUpdateStatusLabel(updateState)}
+                </span>
+                <span className="text-[11px]" style={{ color: colors.textGhost }}>
+                  {updateState?.currentVersion ? `v${updateState.currentVersion}` : 'dev'}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] leading-5" style={{ color: colors.textGhost }}>
+                {updateState?.detail || 'Takoyaki checks GitHub releases and downloads updates in the background.'}
+              </p>
+              {updateState?.status === 'downloading' && (
+                <div className="mt-3 h-1 overflow-hidden rounded-full" style={{ background: colors.bgInput }}>
+                  <div
+                    className="h-full rounded-full transition-[width] duration-200"
+                    style={{ width: `${updateState.downloadPercent || 0}%`, background: colors.accent }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onCheckForUpdates}
+                disabled={updateDisabled || updateBusy}
+                className="takoyaki-btn rounded-md px-3 py-1.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ ...button.base, color: colors.textSecondary }}
+              >
+                {updateBusy ? 'Working...' : 'Check now'}
+              </button>
+              {updateDownloaded && (
+                <button
+                  type="button"
+                  onClick={onInstallUpdate}
+                  className="takoyaki-btn rounded-md px-3 py-1.5 text-[11px]"
+                  style={{ ...button.base, color: colors.accent }}
+                >
+                  Restart to update
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="px-5 py-4" style={{ borderBottom: sectionBorder }}>
             <span
               className="text-[10px] font-semibold"

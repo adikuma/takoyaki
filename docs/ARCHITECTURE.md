@@ -32,6 +32,7 @@ graph TB
         Socket[SocketServer / TCP]
         Editor[EditorService]
         Git[GitWorktree]
+        Updates[UpdateService / electron-updater]
         WM --- TM
         WM --- Git
         WM --- Browser
@@ -44,6 +45,7 @@ graph TB
     Bridge <-->|ipcMain.handle| Browser
     Bridge <-->|ipcMain.handle| Hooks
     Bridge <-->|ipcMain.handle| Editor
+    Bridge <-->|ipcMain.handle| Updates
 ```
 
 ## Pane tree
@@ -165,6 +167,30 @@ sequenceDiagram
 
 The activity drawer is renderer-side operational feedback. It is not the canonical workspace state. It records recent user-visible work, failures, and blocked operations so long-running git, browser, editor, and hook actions do not feel silent.
 
+## Update flow
+
+```mermaid
+sequenceDiagram
+    participant GitHub as GitHub Release
+    participant Main as UpdateService
+    participant Preload
+    participant UI as Renderer
+    participant User
+
+    Main->>GitHub: checkForUpdates()
+    GitHub-->>Main: version metadata
+    Main-->>Preload: updates:state-changed
+    Preload-->>UI: update state mirror
+    Main->>GitHub: download installer + blockmap
+    Main-->>UI: downloaded state
+    UI->>User: restart to update prompt
+    User->>UI: clicks restart
+    UI->>Main: updates:install
+    Main->>Main: quitAndInstall()
+```
+
+Updates are owned by the main process because only the packaged Electron app should talk to release metadata and restart itself. The renderer only mirrors update state, shows progress in Settings and Activity, and asks the user before installing.
+
 ## Renderer terminal mounting
 
 ```mermaid
@@ -220,6 +246,7 @@ graph LR
         browser["browser<br/>getState, toggle, show,<br/>hide, navigate, history,<br/>reload, setBounds"]
         status["status<br/>onChange"]
         activity["activity<br/>get, onChange"]
+        updates["updates<br/>getState, check, install,<br/>onStateChange"]
         window["window<br/>minimize, maximize, close"]
     end
 ```

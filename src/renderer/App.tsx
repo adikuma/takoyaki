@@ -28,6 +28,7 @@ import {
 import { resolvePaneLabels } from './pane-labels'
 import type { PaneTree, TerminalMetadata, WorkspaceSnapshot } from './types'
 import { createDefaultBrowserPanelState, type BrowserDisplayMode, type BrowserPanelState } from '../shared/browser'
+import type { UpdateState } from '../shared/updates'
 
 // normalizes terminal snapshots into the lighter metadata shape the app caches
 function snapshotToTerminalMetadata(snapshot: {
@@ -134,6 +135,7 @@ export function App() {
   const showToast = useStore((s) => s.showToast)
   const clearToast = useStore((s) => s.clearToast)
   const startActivityOperation = useStore((s) => s.startActivityOperation)
+  const updateActivityOperation = useStore((s) => s.updateActivityOperation)
   const finishActivityOperation = useStore((s) => s.finishActivityOperation)
   const clearActivityOperation = useStore((s) => s.clearActivityOperation)
   const activeView = useStore((s) => s.activeView)
@@ -157,6 +159,8 @@ export function App() {
   const [sidebarDrawerOpen, setSidebarDrawerOpen] = useState(false)
   const [activeVisibleSurfaceId, setActiveVisibleSurfaceId] = useState<string | null>(null)
   const [browserState, setBrowserState] = useState<BrowserPanelState>(() => createDefaultBrowserPanelState())
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null)
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null)
   const [browserDisplayMode, setBrowserDisplayMode] = useState<BrowserDisplayMode>('side')
   const [browserWidth, setBrowserWidth] = useState(420)
   const [activityPanelHeight, setActivityPanelHeight] = useState(DEFAULT_ACTIVITY_PANEL_HEIGHT)
@@ -172,6 +176,7 @@ export function App() {
   >({})
   const [terminalMetadataById, setTerminalMetadataById] = useState<Record<string, TerminalMetadata>>({})
   const browserLoadOperationRef = useRef<{ id: string; url: string | null } | null>(null)
+  const updateOperationRef = useRef<string | null>(null)
   const selectWorkspace = useStore((s) => s.selectWorkspace)
   const terminalViewportRef = useRef<HTMLDivElement>(null)
 
@@ -201,6 +206,12 @@ export function App() {
   const browserVisible = browserState.visible && !isNarrowLayout
   const browserSideVisible = browserVisible && browserDisplayMode === 'side'
   const browserFocusVisible = browserVisible && browserDisplayMode === 'focus'
+  const updateReadyVersion =
+    updateState?.status === 'downloaded' &&
+    updateState.availableVersion &&
+    dismissedUpdateVersion !== updateState.availableVersion
+      ? updateState.availableVersion
+      : null
 
   // keep the browser width inside a safe desktop-only range
   const clampBrowserWidth = useCallback((nextWidth: number) => {
@@ -223,6 +234,14 @@ export function App() {
   const rememberTree = useCallback((workspaceId: string | null, nextTree: PaneTree | null) => {
     if (!workspaceId) return
     setWorkspaceTrees((current) => ({ ...current, [workspaceId]: nextTree }))
+  }, [])
+
+  const checkForUpdates = useCallback(() => {
+    void window.takoyaki?.updates.check()
+  }, [])
+
+  const installUpdate = useCallback(() => {
+    void window.takoyaki?.updates.install()
   }, [])
 
   // restores the saved theme before the app does its first visible paint
@@ -257,6 +276,25 @@ export function App() {
       cleanupReturnFocus()
     }
   }, [activeView])
+
+  // mirror updater state so settings and the restart prompt stay in sync with main
+  useEffect(() => {
+    if (!window.takoyaki?.updates) return
+    let disposed = false
+
+    void window.takoyaki.updates.getState().then((state) => {
+      if (!disposed) setUpdateState(state)
+    })
+
+    const cleanup = window.takoyaki.updates.onStateChange((state) => {
+      if (!disposed) setUpdateState(state)
+    })
+
+    return () => {
+      disposed = true
+      cleanup()
+    }
+  }, [])
 
   // lets the titlebar open settings without threading that handler through every layer
   useEffect(() => {
@@ -486,6 +524,41 @@ export function App() {
     if (!browserState.error) return
     showToast({ message: 'Browser failed to load. Open Activity for details.', dot: colors.error }, 4200)
   }, [browserState.error, showToast])
+
+  // mirrors update checks into activity so downloads and failures are visible
+  useEffect(() => {
+    if (!updateState || updateState.status === 'idle' || updateState.status === 'disabled') return
+
+    const runningStatus =
+      updateState.status === 'checking' || updateState.status === 'available' || updateState.status === 'downloading'
+    const title =
+      updateState.status === 'downloading'
+        ? 'Downloading update'
+        : updateState.status === 'downloaded'
+          ? 'Update ready'
+          : updateState.status === 'not-available'
+            ? 'No update available'
+            : updateState.status === 'error'
+              ? 'Update check failed'
+              : 'Checking for updates'
+    const detail =
+      updateState.status === 'downloading' && updateState.downloadPercent !== null
+        ? `${updateState.downloadPercent}% downloaded.`
+        : updateState.detail
+
+    if (runningStatus) {
+      if (updateOperationRef.current) {
+        updateActivityOperation(updateOperationRef.current, { status: 'running', title, detail })
+        return
+      }
+      updateOperationRef.current = startActivityOperation({ kind: 'updates', title, detail })
+      return
+    }
+
+    const operationId = updateOperationRef.current || startActivityOperation({ kind: 'updates', title, detail })
+    updateOperationRef.current = null
+    finishActivityOperation(operationId, updateState.status === 'error' ? 'failed' : 'success', { title, detail })
+  }, [finishActivityOperation, startActivityOperation, updateActivityOperation, updateState])
 
   // closes the drawer whenever the layout or active workspace makes the drawer stale
   useEffect(() => {
@@ -899,7 +972,56 @@ export function App() {
           </div>
         </div>
       )}
-      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <Settings
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        updateState={updateState}
+        onCheckForUpdates={checkForUpdates}
+        onInstallUpdate={installUpdate}
+      />
+      {updateReadyVersion && (
+        <div
+          className="fixed z-50 takoyaki-toast-in"
+          style={{
+            bottom: toast ? 72 : 20,
+            right: 20,
+            width: 300,
+            background: colors.bg,
+            border: `1px solid ${colors.separator}`,
+            borderRadius: 10,
+            padding: 14,
+            boxShadow: '0 18px 48px rgba(0,0,0,0.28)',
+          }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[13px] font-semibold" style={{ color: colors.textPrimary }}>
+                Update ready
+              </p>
+              <p className="mt-1 text-[12px] leading-5" style={{ color: colors.textSecondary }}>
+                Version {updateReadyVersion} has downloaded. Restart Takoyaki to install it.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="dismiss update"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+              style={{ color: colors.textGhost }}
+              onClick={() => setDismissedUpdateVersion(updateReadyVersion)}
+            >
+              x
+            </button>
+          </div>
+          <button
+            type="button"
+            className="mt-3 rounded-md px-3 py-2 text-[12px] font-medium"
+            style={{ ...button.base, color: colors.accent }}
+            onClick={installUpdate}
+          >
+            Restart to update
+          </button>
+        </div>
+      )}
       {toast && (
         <div
           className="fixed z-50 takoyaki-toast-in"

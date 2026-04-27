@@ -1,6 +1,6 @@
 export type ActivityOperationStatus = 'running' | 'success' | 'failed' | 'blocked'
 
-export type ActivityOperationKind = 'git' | 'browser' | 'editor' | 'hooks' | 'workspace'
+export type ActivityOperationKind = 'git' | 'browser' | 'editor' | 'hooks' | 'workspace' | 'updates'
 
 export interface ActivityOperation {
   id: string
