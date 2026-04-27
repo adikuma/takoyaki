@@ -5,6 +5,7 @@ import type {
   ManagedClaudeHookEvent,
 } from '../shared/claude-status'
 import type { BrowserPanelBounds, BrowserPanelState } from '../shared/browser'
+import type { UpdateState } from '../shared/updates'
 
 // domain types
 // workspace is the main unit of organization in the application
@@ -294,6 +295,12 @@ declare global {
       activity: {
         get: () => Promise<Record<string, number>>
         onChange: (cb: (data: Record<string, number>) => void) => () => void
+      }
+      updates: {
+        getState: () => Promise<UpdateState>
+        check: () => Promise<UpdateState>
+        install: () => Promise<UpdateState>
+        onStateChange: (cb: (state: UpdateState) => void) => () => void
       }
       preferences: {
         getPinnedProjectRoots: () => Promise<string[]>

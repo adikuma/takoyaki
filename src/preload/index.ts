@@ -5,6 +5,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { ClaudeActivityState, ClaudeAttentionState } from '../shared/claude-status'
 import type { BrowserPanelBounds, BrowserPanelState } from '../shared/browser'
+import type { UpdateState } from '../shared/updates'
 
 interface PreloadWorkspace {
   id: string
@@ -280,6 +281,18 @@ const api = {
       ipcRenderer.on('activity:changed', handler)
       return () => {
         ipcRenderer.removeListener('activity:changed', handler)
+      }
+    },
+  },
+  updates: {
+    getState: () => ipcRenderer.invoke('updates:get-state') as Promise<UpdateState>,
+    check: () => ipcRenderer.invoke('updates:check') as Promise<UpdateState>,
+    install: () => ipcRenderer.invoke('updates:install') as Promise<UpdateState>,
+    onStateChange: (cb: (state: UpdateState) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, state: UpdateState) => cb(state)
+      ipcRenderer.on('updates:state-changed', handler)
+      return () => {
+        ipcRenderer.removeListener('updates:state-changed', handler)
       }
     },
   },

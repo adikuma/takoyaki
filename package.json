@@ -1,6 +1,6 @@
 {
   "name": "takoyaki",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A terminal multiplexer for coding agents",
   "main": "./out/main/index.js",
   "license": "AGPL-3.0-or-later",
@@ -25,6 +25,7 @@
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^1.7.0",
     "node-pty": "^1.1.0",
     "react": "^19.0.0",

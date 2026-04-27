@@ -3,6 +3,7 @@
 Takoyaki is a Windows-first terminal multiplexer for AI coding agents.
 It brings multiple projects, split panes, git worktree tasks, Claude Code hooks, review tools, a browser companion, activity tracking, and editor actions into one desktop app.
 
+Current release: `v0.2.2`
 
 ## Features
 
@@ -14,6 +15,7 @@ It brings multiple projects, split panes, git worktree tasks, Claude Code hooks,
 - **Browser companion**
 - **Browser focus mode**
 - **Activity drawer**
+- **Automatic updates**
 - **Claude Code hooks**
 - **Editor integration**
 - **Per-pane terminal zoom**
@@ -32,6 +34,10 @@ Download the latest release from the [releases page](https://github.com/adikuma/
 See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release notes.
 
 > macOS and Linux builds coming soon. Currently Windows only.
+
+### Updates
+
+Packaged Windows builds check GitHub releases in the background. Takoyaki downloads the latest update quietly, then asks before restarting to install it.
 
 ### Hooks integration
 

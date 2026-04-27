@@ -64,7 +64,7 @@ describe('browser helpers', () => {
   it('removes electron app branding from browser user agents', () => {
     expect(
       sanitizeBrowserUserAgent(
-        'Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36 Electron/33.2.1 takoyaki/0.2.1 cmux-windows/0.2.1',
+        'Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36 Electron/33.2.1 takoyaki/0.2.2 cmux-windows/0.2.2',
       ),
     ).toBe('Mozilla/5.0 Chrome/130.0.0.0 Safari/537.36')
   })
